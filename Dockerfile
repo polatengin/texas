@@ -13,6 +13,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 EXPOSE 3000
 
-ENTRYPOINT [ "bash", "generate-docs.sh" ]
-
 CMD ["npm", "run", "run-server"]
