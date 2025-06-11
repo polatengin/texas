@@ -30,20 +30,19 @@ This design enables seamless integration of AVM documentation into AI-driven wor
 
 ## How to run the AVM MCP server
 
-1. **Prerequisites:**
+- **Prerequisites:**
 
-Ensure you have the following installed:
+Ensure you have the Node.js (version 23 or higher) installed.
 
-- Node.js (version 23 or higher)
-
-1. **Clone the Repository:**
+- **Clone the Repository:**
 
 ```bash
-git clone https://github.com/your-username/your-repo.git
-cd your-repo
+git clone https://github.com/polatengin/texas
+
+cd texas
 ```
 
-1. **Install Dependencies:**
+- **Install Dependencies:**
 
 Ensure you have Node.js installed, then run:
 
@@ -51,7 +50,7 @@ Ensure you have Node.js installed, then run:
 npm install
 ```
 
-1. **Generate Documentation:**
+- **Generate Documentation:**
 
 Run the script to clone the AVM Bicep registry and generate documentation:
 
@@ -59,7 +58,7 @@ Run the script to clone the AVM Bicep registry and generate documentation:
 ./generate-docs.sh
 ```
 
-1. **Start the Server:**
+- **Start the Server:**
 
 Start the MCP server using:
 
@@ -67,12 +66,12 @@ Start the MCP server using:
 npm start
 ```
 
-1. **Access the MCP Endpoint:**
+- **Access the MCP Endpoint:**
 
 The server will be available at `http://localhost:3000/mcp`.
 
 ## Example Usage
 
 ```text
-generate infrastructure architecture in a bicep file using avm modules, I want a storage account, a redis and two vms, please
+Generate infrastructure architecture in a Bicep file using AVM modules, I want a storage account, a Redis and two VMs, please
 ```
