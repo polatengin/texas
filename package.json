@@ -1,0 +1,27 @@
+{
+  "name": "avm-mcp",
+  "version": "1.0.0",
+  "description": "AVM MCP server using Model Context Protocol TypeScript SDK",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "generate-docs": "bash ./generate-docs.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.12.1"
+  },
+  "devDependencies": {
+    "ts-node": "10.9.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "avm",
+    "azure",
+    "bicep"
+  ],
+  "author": "polatengin",
+  "license": "MIT"
+}
