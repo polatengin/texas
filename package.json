@@ -5,13 +5,22 @@
   "main": "index.ts",
   "type": "module",
   "scripts": {
-    "generate-docs": "bash ./generate-docs.sh"
+    "generate-docs": "bash ./generate-docs.sh",
+    "run-server": "npx ts-node index.ts",
+    "start": "concurrently \"npm run generate-docs\" \"npm run run-server\"",
+    "build": "npx tsc",
+    "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "dev": "concurrently \"npm run build\" \"npm run start\" \"npm run inspector\""
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.12.1"
+    "@modelcontextprotocol/sdk": "1.12.1",
+    "express": "5.1.0"
   },
   "devDependencies": {
-    "ts-node": "10.9.2"
+    "@types/express": "5.0.3",
+    "concurrently": "9.1.2",
+    "ts-node": "10.9.2",
+    "typescript": "5.8.3"
   },
   "engines": {
     "node": ">=18.0.0"
