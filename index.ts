@@ -161,6 +161,24 @@ app.post('/mcp', async (req: Request, res: Response) => {
             }
         );
 
+        server.resource(
+            "get_avm_details",
+            new ResourceTemplate("resource://get_avm_details/{avm_name}", { list: undefined }),
+            async (uri, { avm_name }) => {
+                const avmBase = resolve("./docs", `${avm_name}.md`);
+                if (!existsSync(avmBase)) {
+                    throw new Error(`AVM documentation not found for: ${avm_name}.`);
+                }
+                return {
+                    contents: [{
+                        uri: `resource://get_avm_details/${avm_name}`,
+                        text: readFileSync(avmBase, "utf-8")
+                    }]
+                };
+            }
+        );
+
+
         const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
         res.on('close', () => {
