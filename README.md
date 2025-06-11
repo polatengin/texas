@@ -30,6 +30,12 @@ This design enables seamless integration of AVM documentation into AI-driven wor
 
 ## How to run the AVM MCP server
 
+1. **Prerequisites:**
+
+Ensure you have the following installed:
+
+- Node.js (version 23 or higher)
+
 1. **Clone the Repository:**
 
 ```bash
