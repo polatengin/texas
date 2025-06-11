@@ -28,7 +28,7 @@ This repository implements an AVM MCP server using Node.js and Express, exposing
 
 This design enables seamless integration of AVM documentation into AI-driven workflows, infrastructure automation, and developer tools, making it easier to discover, use, and reason about Azure Bicep modules programmatically.
 
-## How to run the AVM MCP server
+## How to run the AVM MCP server locally
 
 - **Prerequisites:**
 
