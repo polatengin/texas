@@ -7,10 +7,10 @@
   "scripts": {
     "generate-docs": "bash ./generate-docs.sh",
     "run-server": "npx ts-node index.ts",
-    "start": "concurrently \"npm run generate-docs\" \"npm run run-server\"",
+    "start": "npx concurrently \"npm run generate-docs\" \"npm run run-server\"",
     "build": "npx tsc",
     "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
-    "dev": "concurrently \"npm run build\" \"npm run start\" \"npm run inspector\""
+    "dev": "npx concurrently \"npm run build\" \"npm run start\" \"npm run inspector\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.12.1",
