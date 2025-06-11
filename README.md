@@ -65,3 +65,8 @@ npm start
 
 The server will be available at `http://localhost:3000/mcp`.
 
+## Example Usage
+
+```text
+generate infrastructure architecture in a bicep file using avm modules, I want a storage account, a redis and two vms, please
+```
