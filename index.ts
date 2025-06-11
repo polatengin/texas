@@ -221,6 +221,92 @@ app.post('/mcp', async (req: Request, res: Response) => {
             }
         );
 
+        server.tool(
+            "generate_architecture",
+            {
+                resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVMs."),
+                extra_context: z.string().optional().describe("Extra high-level architecture context provided by the user.")
+            },
+            async (params) => {
+                const resourcesToInclude: string[] = params.resources || [];
+                const extraContext = params.extra_context || 'No extra context supplied.';
+
+                if (resourcesToInclude.length === 0) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: "No resources specified. Please provide a list of desired Azure resource types (e.g., 'storage account', 'web app')."
+                            }
+                        ]
+                    };
+                }
+
+                let infoPayload = `
+/**
+ * Information collected by AVM MCP Server for architecture generation.
+ *
+ * Use the following documentation to build the Bicep architecture.
+ * Pay close attention to module paths, parameters, and examples.
+ *
+ * Desired high-level architecture context:
+ * ${extraContext}
+ */
+
+`;
+                const collectedDocs: string[] = [];
+                const avmNotFound: string[] = [];
+
+                for (const resourceType of resourcesToInclude) {
+                    const bestMatchDocName = findBestAvmDocMatch(resourceType, allDocFiles);
+                    const docFilePath = bestMatchDocName ? resolve("./docs", `${bestMatchDocName}.md`) : null;
+
+                    if (bestMatchDocName && docFilePath && existsSync(docFilePath)) {
+                        const markdownContent = readFileSync(docFilePath, "utf-8");
+                        const avmDetails = parseAvmDetailsFromMarkdown(markdownContent, bestMatchDocName);
+
+                        collectedDocs.push(
+                            `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchDocName}.md)\n` +
+                            `**Resource Type:** \`${avmDetails.resourceType || 'Not found'}\`\n` +
+                            `**API Version:** \`${avmDetails.apiVersion || 'Not found'}\`\n` +
+                            `**Suggested Bicep Module Path (BR Endpoint):** \`${avmDetails.brEndpoint || 'Not found'}\`\n` +
+                            `**Documentation Link:** \`${avmDetails.url || 'Not found'}\`\n\n` +
+                            `${markdownContent}\n` +
+                            `---\n`
+                        );
+                    } else {
+                        avmNotFound.push(resourceType);
+                    }
+                }
+
+                if (collectedDocs.length === 0 && avmNotFound.length > 0) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `No AVM documentation could be found for the requested resources: ${avmNotFound.join(', ')}. Please verify the resource names. You can list available modules using the 'list_avms' resource, or find available AVMs at https://azure.github.io/Azure-Verified-Modules/indexes/bicep/.`
+                            }
+                        ]
+                    };
+                }
+
+                infoPayload += collectedDocs.join('\n');
+
+                if (avmNotFound.length > 0) {
+                    infoPayload += `\nWARNING: No AVM documentation found for the following requested resources: ${avmNotFound.join(', ')}.\n`;
+                    infoPayload += `Please ensure these are valid AVM module names. The AI may need to make assumptions or inform the user.\n`;
+                }
+
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: infoPayload
+                        }
+                    ]
+                };
+            }
+        );
 
         const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
