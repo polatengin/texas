@@ -28,3 +28,40 @@ This repository implements an AVM MCP server using Node.js and Express, exposing
 
 This design enables seamless integration of AVM documentation into AI-driven workflows, infrastructure automation, and developer tools, making it easier to discover, use, and reason about Azure Bicep modules programmatically.
 
+## How to run the AVM MCP server
+
+1. **Clone the Repository:**
+
+```bash
+git clone https://github.com/your-username/your-repo.git
+cd your-repo
+```
+
+1. **Install Dependencies:**
+
+Ensure you have Node.js installed, then run:
+
+```bash
+npm install
+```
+
+1. **Generate Documentation:**
+
+Run the script to clone the AVM Bicep registry and generate documentation:
+
+```bash
+./generate-docs.sh
+```
+
+1. **Start the Server:**
+
+Start the MCP server using:
+
+```bash
+npm start
+```
+
+1. **Access the MCP Endpoint:**
+
+The server will be available at `http://localhost:3000/mcp`.
+
