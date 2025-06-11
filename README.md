@@ -125,6 +125,10 @@ After the container is running, we can test access the MCP server using the foll
 curl "http://$(az container show --resource-group "${RANDOM_PREFIX}-texas-rg" --name "${RANDOM_PREFIX}-texas-app" --query "ipAddress.fqdn" -o tsv):3000/health"
 ```
 
+## Add AVM MCP Server to VSCode
+
+To add the AVM MCP server to Visual Studio Code, click on the "Toggle Chat" button on the VSCode window, then switch to the "Agent" mode from the "Ask" mode. In the "Agent" model, click on the "Select Tools" button and then scroll down and click the "Add More Tool" button. Fill out the questions.
+
 ## Example Usage
 
 ```text
