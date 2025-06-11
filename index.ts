@@ -178,6 +178,49 @@ app.post('/mcp', async (req: Request, res: Response) => {
             }
         );
 
+        server.tool(
+            "mcp_find_avms",
+            {
+                resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app').")
+            },
+            async (args) => {
+                const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; found: boolean }> = {};
+                for (const requestedResource of args.resources) {
+                    const bestMatchDocName = findBestAvmDocMatch(requestedResource, allDocFiles);
+                    const docFilePath = bestMatchDocName ? resolve("./docs", `${bestMatchDocName}.md`) : null;
+
+                    if (bestMatchDocName && docFilePath && existsSync(docFilePath)) {
+                        const markdownContent = readFileSync(docFilePath, "utf-8");
+                        const avmDetails = parseAvmDetailsFromMarkdown(markdownContent, bestMatchDocName);
+
+                        result[requestedResource] = {
+                            doc_name: bestMatchDocName,
+                            resource_type: avmDetails.resourceType,
+                            api_version: avmDetails.apiVersion,
+                            br_endpoint: avmDetails.brEndpoint,
+                            found: true
+                        };
+                    } else {
+                        result[requestedResource] = {
+                            doc_name: "Not found",
+                            resource_type: null,
+                            api_version: null,
+                            br_endpoint: null,
+                            found: false
+                        };
+                    }
+                }
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(result, null, 2)
+                        }
+                    ]
+                };
+            }
+        );
+
 
         const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
