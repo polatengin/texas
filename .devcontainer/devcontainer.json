@@ -1,4 +1,5 @@
 {
   "name": "Texas Development Environment",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm"
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "forwardPorts": [ 6274, 6277 ]
 }
