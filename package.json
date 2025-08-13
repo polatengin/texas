@@ -31,5 +31,8 @@
     "bicep"
   ],
   "author": "polatengin",
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }
