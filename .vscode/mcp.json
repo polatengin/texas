@@ -1,7 +1,11 @@
 {
   "servers": {
-    "avm-mcp": {
-      "url": "http://localhost:3000/mcp"
+    "texas": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@polatengin/texas"
+      ]
     }
   }
 }
