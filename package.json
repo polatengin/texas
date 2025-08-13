@@ -5,10 +5,8 @@
   "main": "index.ts",
   "type": "module",
   "scripts": {
-    "generate-docs": "bash ./generate-docs.sh",
-    "run-server": "npx ts-node index.ts",
-    "start": "npx concurrently \"npm run generate-docs\" \"npm run run-server\"",
-    "build": "npx tsc",
+    "build": "rm -rf dist && npx tsc && chmod +x ./dist/index.js",
+    "start": "npx tsx index.ts",
     "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
     "dev": "npx concurrently \"npm run build\" \"npm run start\" \"npm run inspector\""
   },
