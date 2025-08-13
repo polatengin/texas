@@ -1,102 +1,9 @@
-import type { Request, Response } from "express";
+#!/usr/bin/env node
 
-import express from "express";
-import { existsSync, readdirSync, readFileSync } from "fs";
-import { resolve } from "path";
 import { z } from "zod";
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-
-const app = express();
-app.use(express.json());
-
-function normalizeString(str: string): string {
-    return str.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
-
-function calculateSimilarity(s1: string, s2: string): number {
-    if (s1 === s2) return 1.0;
-    if (!s1 || !s2) return 0.0;
-
-    const words1 = s1.split(/\s+/).filter(Boolean);
-    const words2 = s2.split(/\s+/).filter(Boolean);
-
-    if (words1.length === 0 || words2.length === 0) return 0.0;
-
-    let commonWords = 0;
-    const longerWords = words1.length > words2.length ? words1 : words2;
-    const shorterWords = words1.length <= words2.length ? words1 : words2;
-
-    for (const word of shorterWords) {
-        if (longerWords.includes(word)) {
-            commonWords++;
-        }
-    }
-
-    if (s1.includes(s2) || s2.includes(s1)) {
-        return Math.max(commonWords / longerWords.length, 0.5);
-    }
-
-    if (words1.length === 1 && words2.length === 1) {
-        if (s1.includes(s2) || s2.includes(s1)) {
-            return Math.max(s1.length, s2.length) / Math.max(s1.length, s2.length);
-        }
-    }
-
-    return commonWords / longerWords.length;
-}
-
-function findBestAvmDocMatch(requestedResource: string, allDocFiles: string[], similarityThreshold: number = 0.6): string | null {
-    const normalizedRequested = normalizeString(requestedResource);
-    let bestMatch: string | null = null;
-    let highestScore = 0.0;
-
-    if (!normalizedRequested) {
-        return null;
-    }
-
-    for (const docFile of allDocFiles) {
-        const docBaseName = docFile.replace(".md", "");
-        const normalizedDocName = normalizeString(docBaseName.replace(/-/g, ' '));
-
-        const score = calculateSimilarity(normalizedRequested, normalizedDocName);
-
-        if (score === 1.0) {
-            return docBaseName;
-        }
-
-        if (score > highestScore && score >= similarityThreshold) {
-            highestScore = score;
-            bestMatch = docBaseName;
-        }
-    }
-
-    if (bestMatch === null) {
-        const partial = normalizedRequested.split(/\s+/);
-        let exactMatch = "";
-        for (const requestedItem of partial) {
-            const desiredFileName = `${requestedItem}.md`;
-            if (allDocFiles.includes(desiredFileName)) {
-                exactMatch = desiredFileName;
-            }
-        }
-
-        if (exactMatch) {
-            return exactMatch.replace(".md", "");
-        }
-
-        const partialMatch = allDocFiles.find(df => {
-            const normalizedDocName = normalizeString(df.replace(".md", ""));
-            return partial.some(word => normalizedDocName.includes(word));
-        });
-
-        if (partialMatch) {
-            return partialMatch.replace(".md", "");
-        }
-    }
-
-    return bestMatch;
-}
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { load } from "cheerio";
 
 function parseAvmDetailsFromMarkdown(markdownContent: string, avmDocName: string) {
     const details = {
@@ -116,9 +23,9 @@ function parseAvmDetailsFromMarkdown(markdownContent: string, avmDocName: string
 
         const parts = details.resourceType.split('/');
         if (parts.length >= 2 && parts[0].startsWith('Microsoft.')) {
-            details.brEndpoint = `br/public:avm/res/${details.resourceType}:1.0.0`;
+            details.brEndpoint = `br/public:avm/res/${details.resourceType}:${details.apiVersion}`;
         } else {
-            details.brEndpoint = `br/public:avm/res/Microsoft.Unknown/${avmDocName.replace(/-/g, '')}:1.0.0`;
+            details.brEndpoint = `br/public:avm/res/Microsoft.Unknown/${avmDocName.replace(/-/g, '')}:${details.apiVersion}`;
         }
     } else {
         console.warn(`Could not extract resource type or API version from markdown for ${avmDocName}.`);
@@ -126,131 +33,163 @@ function parseAvmDetailsFromMarkdown(markdownContent: string, avmDocName: string
         if (parts.length >= 2) {
             const providerHint = parts[0];
             const resourceTypeHint = parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
-            details.brEndpoint = `br/public:avm/res/Microsoft.${providerHint}/${resourceTypeHint}s:1.0.0`;
+            details.brEndpoint = `br/public:avm/res/Microsoft.${providerHint}/${resourceTypeHint}s:${details.apiVersion}`;
         } else {
-            details.brEndpoint = `br/public:avm/res/Microsoft.Unknown/${avmDocName.replace(/-/g, '')}:1.0.0`;
+            details.brEndpoint = `br/public:avm/res/Microsoft.Unknown/${avmDocName.replace(/-/g, '')}:${details.apiVersion}`;
         }
     }
 
     return details;
 }
 
-app.get('/health', (req: Request, res: Response) => {
-    res.status(200).json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
+async function getAllModulesFromWebsite(): Promise<Record<string, string>> {
+    const response = await fetch("https://azure.github.io/Azure-Verified-Modules/indexes/bicep/bicep-resource-modules/");
+    const html = await response.text();
+    const $ = load(html);
+
+    const modules: Record<string, string> = {};
+
+    let allModulesSection = $('h3').filter((_, el) => $(el).text().includes('All modules'));
+
+    if (allModulesSection.length === 0) {
+        $('table').each((_, table) => {
+            const rows = $(table).find('tr');
+            if (rows.length > 10) {
+                allModulesSection = $(table).prev('h3');
+                return false;
+            }
+        });
+    }
+
+    if (allModulesSection.length > 0) {
+        let currentElement = allModulesSection.next();
+
+        while (currentElement.length > 0 && !currentElement.is('table')) {
+            if (currentElement.find('table').length > 0) {
+                currentElement = currentElement.find('table').first();
+                break;
+            }
+            currentElement = currentElement.next();
+        }
+
+        if (currentElement.is('table')) {
+            currentElement.find('tr').each((_, row) => {
+                const cells = $(row).find('td');
+                if (cells.length >= 4) {
+                    const nameText = $(cells[1]).text().trim();
+                    const url = $(cells[1]).find('a').attr('href') || '';
+                    modules[nameText] = url;
+                }
+            });
+        }
+    }
+
+    if (Object.keys(modules).length === 0) {
+        $('table tr').each((_, row) => {
+            const cells = $(row).find('td');
+            if (cells.length >= 3) {
+                const secondCell = $(cells[1]).text().trim();
+
+                const parts = secondCell.split(' ');
+                const moduleName = parts[0];
+
+                modules[moduleName] = moduleName;
+            }
+        });
+    }
+
+    return modules;
+}
+
+const server = new McpServer({
+    name: "AVM MCP Server",
+    version: "0.0.1"
 });
 
-app.post('/mcp', async (req: Request, res: Response) => {
-    try {
-        const server = new McpServer({
-            name: "AVM MCP Server",
-            version: "1.0.0"
-        });
+const modules = await getAllModulesFromWebsite();
 
-        const allDocFiles = readdirSync(resolve("./docs")).filter(name => name.endsWith(".md"));
+server.resource(
+    "list_avms",
+    "resource://list_avms",
+    {
+        description: "List all Bicep AVM Modules that have documentation",
+        params: z.object({})
+    },
+    async () => {
+        return {
+            contents: Object.keys(modules).map(name => ({
+                uri: `resource://get_avm_details/${name}`,
+                text: name.replace(/-/g, ' ')
+            }))
+        };
+    }
+);
 
-        server.resource(
-            "list_avms",
-            "resource://list_avms",
-            {
-                description: "List all Bicep AVM Modules that have documentation",
-                params: z.object({})
-            },
-            async () => {
-                return {
-                    contents: allDocFiles.map(name => ({
-                        uri: `resource://get_avm_details/${name.replace(".md", "")}`,
-                        text: name.replace(".md", "").replace(/-/g, ' ')
-                    }))
+server.tool(
+    "mcp_find_avms",
+    {
+        resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app').")
+    },
+    async (args) => {
+        const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; found: boolean }> = {};
+        for (const requestedResource of args.resources) {
+            const bestMatchDocName = Object.keys(modules).find(name => name.includes(requestedResource)) || null;
+            const docFilePath = bestMatchDocName ? modules[bestMatchDocName] : null;
+
+            if (bestMatchDocName && docFilePath) {
+                const markdownContent = await fetch(docFilePath);
+                const avmDetails = parseAvmDetailsFromMarkdown(await markdownContent.text(), bestMatchDocName);
+
+                result[requestedResource] = {
+                    doc_name: bestMatchDocName,
+                    resource_type: avmDetails.resourceType,
+                    api_version: avmDetails.apiVersion,
+                    br_endpoint: avmDetails.brEndpoint,
+                    found: true
+                };
+            } else {
+                result[requestedResource] = {
+                    doc_name: "Not found",
+                    resource_type: null,
+                    api_version: null,
+                    br_endpoint: null,
+                    found: false
                 };
             }
-        );
-
-        server.resource(
-            "get_avm_details",
-            new ResourceTemplate("resource://get_avm_details/{avm_name}", { list: undefined }),
-            async (uri, { avm_name }) => {
-                const avmBase = resolve("./docs", `${avm_name}.md`);
-                if (!existsSync(avmBase)) {
-                    throw new Error(`AVM documentation not found for: ${avm_name}.`);
+        }
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(result, null, 2)
                 }
-                return {
-                    contents: [{
-                        uri: `resource://get_avm_details/${avm_name}`,
-                        text: readFileSync(avmBase, "utf-8")
-                    }]
-                };
-            }
-        );
+            ]
+        };
+    }
+);
 
-        server.tool(
-            "mcp_find_avms",
-            {
-                resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app').")
-            },
-            async (args) => {
-                const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; found: boolean }> = {};
-                for (const requestedResource of args.resources) {
-                    const bestMatchDocName = findBestAvmDocMatch(requestedResource, allDocFiles);
-                    const docFilePath = bestMatchDocName ? resolve("./docs", `${bestMatchDocName}.md`) : null;
+server.tool(
+    "generate_architecture",
+    {
+        resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVMs."),
+        extra_context: z.string().optional().describe("Extra high-level architecture context provided by the user.")
+    },
+    async (params) => {
+        const resourcesToInclude: string[] = params.resources || [];
+        const extraContext = params.extra_context || 'No extra context supplied.';
 
-                    if (bestMatchDocName && docFilePath && existsSync(docFilePath)) {
-                        const markdownContent = readFileSync(docFilePath, "utf-8");
-                        const avmDetails = parseAvmDetailsFromMarkdown(markdownContent, bestMatchDocName);
-
-                        result[requestedResource] = {
-                            doc_name: bestMatchDocName,
-                            resource_type: avmDetails.resourceType,
-                            api_version: avmDetails.apiVersion,
-                            br_endpoint: avmDetails.brEndpoint,
-                            found: true
-                        };
-                    } else {
-                        result[requestedResource] = {
-                            doc_name: "Not found",
-                            resource_type: null,
-                            api_version: null,
-                            br_endpoint: null,
-                            found: false
-                        };
+        if (resourcesToInclude.length === 0) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "No resources specified. Please provide a list of desired Azure resource types (e.g., 'storage account', 'web app')."
                     }
-                }
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: JSON.stringify(result, null, 2)
-                        }
-                    ]
-                };
-            }
-        );
+                ]
+            };
+        }
 
-        server.tool(
-            "generate_architecture",
-            {
-                resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVMs."),
-                extra_context: z.string().optional().describe("Extra high-level architecture context provided by the user.")
-            },
-            async (params) => {
-                const resourcesToInclude: string[] = params.resources || [];
-                const extraContext = params.extra_context || 'No extra context supplied.';
-
-                if (resourcesToInclude.length === 0) {
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: "No resources specified. Please provide a list of desired Azure resource types (e.g., 'storage account', 'web app')."
-                            }
-                        ]
-                    };
-                }
-
-                let infoPayload = `
+        let infoPayload = `
 /**
  * Information collected by AVM MCP Server for architecture generation.
  *
@@ -262,110 +201,75 @@ app.post('/mcp', async (req: Request, res: Response) => {
  */
 
 `;
-                const collectedDocs: string[] = [];
-                const avmNotFound: string[] = [];
+        const collectedDocs: string[] = [];
+        const avmNotFound: string[] = [];
 
-                for (const resourceType of resourcesToInclude) {
-                    const bestMatchDocName = findBestAvmDocMatch(resourceType, allDocFiles);
-                    const docFilePath = bestMatchDocName ? resolve("./docs", `${bestMatchDocName}.md`) : null;
+        for (const resourceType of resourcesToInclude) {
+            const bestMatchDocName = Object.keys(modules).find(name => name.includes(resourceType)) || null;
+            const docFilePath = bestMatchDocName ? modules[bestMatchDocName] : null;
 
-                    if (bestMatchDocName && docFilePath && existsSync(docFilePath)) {
-                        const markdownContent = readFileSync(docFilePath, "utf-8");
-                        const avmDetails = parseAvmDetailsFromMarkdown(markdownContent, bestMatchDocName);
+            if (bestMatchDocName && docFilePath) {
+                const markdownContent = await fetch(docFilePath);
+                const avmDetails = parseAvmDetailsFromMarkdown(await markdownContent.text(), bestMatchDocName);
 
-                        collectedDocs.push(
-                            `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchDocName}.md)\n` +
-                            `**Resource Type:** \`${avmDetails.resourceType || 'Not found'}\`\n` +
-                            `**API Version:** \`${avmDetails.apiVersion || 'Not found'}\`\n` +
-                            `**Suggested Bicep Module Path (BR Endpoint):** \`${avmDetails.brEndpoint || 'Not found'}\`\n` +
-                            `**Documentation Link:** \`${avmDetails.url || 'Not found'}\`\n\n` +
-                            `${markdownContent}\n` +
-                            `---\n`
-                        );
-                    } else {
-                        avmNotFound.push(resourceType);
-                    }
-                }
-
-                if (collectedDocs.length === 0 && avmNotFound.length > 0) {
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: `No AVM documentation could be found for the requested resources: ${avmNotFound.join(', ')}. Please verify the resource names. You can list available modules using the 'list_avms' resource, or find available AVMs at https://azure.github.io/Azure-Verified-Modules/indexes/bicep/.`
-                            }
-                        ]
-                    };
-                }
-
-                infoPayload += collectedDocs.join('\n');
-
-                if (avmNotFound.length > 0) {
-                    infoPayload += `\nWARNING: No AVM documentation found for the following requested resources: ${avmNotFound.join(', ')}.\n`;
-                    infoPayload += `Please ensure these are valid AVM module names. The AI may need to make assumptions or inform the user.\n`;
-                }
-
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: infoPayload
-                        }
-                    ]
-                };
+                collectedDocs.push(
+                    `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchDocName}.md)\n` +
+                    `**Resource Type:** \`${avmDetails.resourceType || 'Not found'}\`\n` +
+                    `**API Version:** \`${avmDetails.apiVersion || 'Not found'}\`\n` +
+                    `**Suggested Bicep Module Path (BR Endpoint):** \`${avmDetails.brEndpoint || 'Not found'}\`\n` +
+                    `**Documentation Link:** \`${avmDetails.url || 'Not found'}\`\n\n` +
+                    `${markdownContent}\n` +
+                    `---\n`
+                );
+            } else {
+                avmNotFound.push(resourceType);
             }
-        );
-
-        const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-
-        res.on('close', () => {
-            console.log('Request closed');
-            transport.close();
-            server.close();
-        });
-
-        await server.connect(transport);
-
-        await transport.handleRequest(req, res, req.body);
-    } catch (error) {
-        console.error('Error handling MCP request:', error);
-        if (!res.headersSent) {
-            res.status(500).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32603,
-                    message: 'Internal server error',
-                },
-                id: null,
-            });
         }
+
+        if (collectedDocs.length === 0 && avmNotFound.length > 0) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `No AVM documentation could be found for the requested resources: ${avmNotFound.join(', ')}. Please verify the resource names. You can list available modules using the 'list_avms' resource, or find available AVMs at https://azure.github.io/Azure-Verified-Modules/indexes/bicep/.`
+                    }
+                ]
+            };
+        }
+
+        infoPayload += collectedDocs.join('\n');
+
+        if (avmNotFound.length > 0) {
+            infoPayload += `\nWARNING: No AVM documentation found for the following requested resources: ${avmNotFound.join(', ')}.\n`;
+            infoPayload += `Please ensure these are valid AVM module names. The AI may need to make assumptions or inform the user.\n`;
+        }
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: infoPayload
+                }
+            ]
+        };
     }
-});
+);
 
-app.get('/mcp', async (req: Request, res: Response) => {
-    console.log('Received GET MCP request');
-    res.writeHead(405).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-            code: -32000,
-            message: "Method not allowed."
-        },
-        id: null
-    }));
-});
+const log = (message: string) => {
+    console.info(`\n[${new Date().toISOString()}] ${message}`);
+};
 
-app.delete('/mcp', async (req: Request, res: Response) => {
-    console.log('Received DELETE MCP request');
-    res.writeHead(405).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-            code: -32000,
-            message: "Method not allowed."
-        },
-        id: null
-    }));
-});
+const handleShutdown = () => {
+    log(`AVM MCP Server received shutdown signal, shutting down gracefully...`);
+    process.exit(0);
+};
 
-app.listen(3000, () => {
-    console.log('Server is running on http://localhost:3000');
-});
+log(`AVM MCP Server starting...`);
+
+process.on('SIGINT', handleShutdown);
+process.on('SIGTERM', handleShutdown);
+process.on('exit', handleShutdown);
+
+await server.connect(new StdioServerTransport());
+
+log(`AVM MCP Server started successfully and listening for connections`);
