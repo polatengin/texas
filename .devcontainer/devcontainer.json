@@ -1,5 +1,13 @@
 {
   "name": "Texas Development Environment",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
-  "forwardPorts": [ 6274, 6277 ]
+  "forwardPorts": [ 6274, 6277 ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "ms-azuretools.vscode-bicep"
+      ]
+    }
+  }
 }
