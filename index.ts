@@ -396,20 +396,7 @@ const getAllModules = async (): Promise<AVMModule[]> => {
     return modules;
 };
 
-const parseAvmDetailsFromMarkdown = (markdownContent: string, moduleName: string) => {
-    // Extract resource type, API version, and BR endpoint from markdown content
-    // This is a simplified parser - adjust based on actual markdown structure
-    const resourceTypeMatch = markdownContent.match(/Resource Type[:\s]*([^\n\r]+)/i);
-    const apiVersionMatch = markdownContent.match(/API Version[:\s]*([^\n\r]+)/i);
-    const brEndpointMatch = markdownContent.match(/br\/public:([^\s\n\r]+)/);
 
-    return {
-        resourceType: resourceTypeMatch ? resourceTypeMatch[1].trim() : null,
-        apiVersion: apiVersionMatch ? apiVersionMatch[1].trim() : null,
-        brEndpoint: brEndpointMatch ? `br/public:${brEndpointMatch[1]}` : null,
-        url: `https://github.com/Azure/bicep-registry-modules/tree/main/${moduleName}`
-    };
-};
 
 const server = new McpServer({
     name: "AVM MCP Server",
@@ -454,7 +441,12 @@ server.registerResource(
             };
         }
 
-        const avmDetails = parseAvmDetailsFromMarkdown(module.markdown, module.moduleName);
+        const avmDetails = {
+            resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
+            apiVersion: module.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
+            brEndpoint: module.parsedMarkdown?.brEndpoint || 'Not found',
+            url: `https://github.com/Azure/bicep-registry-modules/tree/main/${module.moduleName}`
+        };
 
         const detailsText = `# ${module.moduleDisplayName}
 
@@ -509,7 +501,12 @@ server.registerTool(
             );
 
             if (bestMatchModule) {
-                const avmDetails = parseAvmDetailsFromMarkdown(bestMatchModule.markdown, bestMatchModule.moduleName);
+                const avmDetails = {
+                    resourceType: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.type || bestMatchModule.resourceType || 'Not found',
+                    apiVersion: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
+                    brEndpoint: bestMatchModule.parsedMarkdown?.brEndpoint || 'Not found',
+                    url: `https://github.com/Azure/bicep-registry-modules/tree/main/${bestMatchModule.moduleName}`
+                };
 
                 result[requestedResource] = {
                     doc_name: bestMatchModule.moduleDisplayName,
@@ -587,14 +584,19 @@ server.registerTool(
             );
 
             if (bestMatchModule) {
-                const avmDetails = parseAvmDetailsFromMarkdown(bestMatchModule.markdown, bestMatchModule.moduleName);
+                const avmDetails = {
+                    resourceType: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.type || bestMatchModule.resourceType || 'Not found',
+                    apiVersion: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
+                    brEndpoint: bestMatchModule.parsedMarkdown?.brEndpoint || 'Not found',
+                    url: `https://github.com/Azure/bicep-registry-modules/tree/main/${bestMatchModule.moduleName}`
+                };
 
                 collectedDocs.push(
                     `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchModule.moduleDisplayName})\n` +
-                    `**Resource Type:** \`${avmDetails.resourceType || 'Not found'}\`\n` +
-                    `**API Version:** \`${avmDetails.apiVersion || 'Not found'}\`\n` +
-                    `**Suggested Bicep Module Path (BR Endpoint):** \`${avmDetails.brEndpoint || 'Not found'}\`\n` +
-                    `**Documentation Link:** \`${avmDetails.url || 'Not found'}\`\n\n` +
+                    `**Resource Type:** \`${avmDetails.resourceType}\`\n` +
+                    `**API Version:** \`${avmDetails.apiVersion}\`\n` +
+                    `**Suggested Bicep Module Path (BR Endpoint):** \`${avmDetails.brEndpoint}\`\n` +
+                    `**Documentation Link:** \`${avmDetails.url}\`\n\n` +
                     `${bestMatchModule.markdown}\n` +
                     `---\n`
                 );
