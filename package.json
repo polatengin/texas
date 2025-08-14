@@ -13,17 +13,13 @@
   "type": "module",
   "scripts": {
     "build": "rm -rf dist && npx tsc && chmod +x ./dist/index.js",
-    "start": "npx tsx index.ts",
-    "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
-    "dev": "npx concurrently \"npm run build\" \"npm run start\" \"npm run inspector\""
+    "start": "npx tsx index.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.17.2",
-    "cheerio": "1.1.2",
     "node-fetch": "3.3.2"
   },
   "devDependencies": {
-    "concurrently": "9.2.0",
     "ts-node": "10.9.2",
     "tsx": "4.20.4",
     "typescript": "5.9.2"
