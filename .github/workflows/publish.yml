@@ -126,20 +126,46 @@ jobs:
           # This might give us a more specific error
           npm publish --dry-run --provenance || echo "Dry run failed"
 
+      - name: Debug repository visibility and trusted publisher
+        run: |
+          echo "🔍 Repository visibility check..."
+          echo "Repository: ${{ github.repository }}"
+          echo "Repository visibility: ${{ github.event.repository.visibility || 'unknown' }}"
+          echo "Repository private: ${{ github.event.repository.private }}"
+          
+          echo "📋 OIDC Token claims that npm might be checking:"
+          echo "Repository URI: https://github.com/${{ github.repository }}"
+          echo "Workflow path: ${{ github.workflow_ref }}"
+          echo "Branch: ${{ github.ref }}"
+          
+          echo "⚠️  CRITICAL: Sigstore shows 'Source Repository Visibility At Signing: private'"
+          echo "This might conflict with npm trusted publisher configuration!"
+
       - name: Publish to NPM
         run: |
           echo "🚀 Publishing @polatengin/texas@${{ env.NEW_VERSION }}..."
           
-          echo "Based on diagnostics: dry-run works, but provenance is causing 404"
-          echo "Attempting publish without provenance first..."
+          echo "💡 Hypothesis: Repository visibility (private) may conflict with trusted publisher"
+          echo "Attempting publish with explicit authentication..."
           
-          # Try without provenance first (since package wasn't originally published with it)
-          if npm publish; then
-            echo "✅ Published successfully without provenance"
-          else
-            echo "❌ Publish without provenance failed, trying with provenance..."
-            npm publish --provenance
-          fi
+          # Set explicit registry and auth for troubleshooting
+          npm config set registry https://registry.npmjs.org/
+          npm config set //registry.npmjs.org/:_authToken \${NODE_AUTH_TOKEN}
+          
+          echo "Config after explicit auth setup:"
+          npm config list | grep -E "(registry|_authToken)"
+          
+          # Try simple publish first
+          echo "Attempting simple publish..."
+          npm publish || {
+            echo "❌ Simple publish failed"
+            echo "Attempting with --access public flag..."
+            npm publish --access public || {
+              echo "❌ Both methods failed"
+              echo "This confirms the issue is with repository visibility vs trusted publisher config"
+              exit 1
+            }
+          }
 
       - name: Commit version bump
         run: |
