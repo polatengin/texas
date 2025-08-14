@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 interface AVMModule {
@@ -226,6 +226,61 @@ server.registerResource(
                 uri: `resource://get_avm_details/${module.moduleName}`,
                 text: module.moduleDisplayName
             }))
+        };
+    }
+);
+
+server.registerResource(
+    "get_avm_details",
+    new ResourceTemplate("resource://get_avm_details/{moduleName}", { list: undefined }),
+    {
+        title: "Get AVM Module Details",
+        description: "Get detailed information about a specific AVM module",
+    },
+    async (_, { moduleName }) => {
+        const module = modules.find(m => m.moduleName === moduleName);
+
+        if (!module) {
+            return {
+                contents: [{
+                    uri: `resource://get_avm_details/${moduleName}`,
+                    text: `Module not found: ${moduleName}`
+                }]
+            };
+        }
+
+        const avmDetails = parseAvmDetailsFromMarkdown(module.markdown, module.moduleName);
+
+        const detailsText = `# ${module.moduleDisplayName}
+
+**Provider Namespace:** ${module.providerNamespace}
+**Resource Type:** ${module.resourceType}
+**Module Name:** ${module.moduleName}
+**Status:** ${module.moduleStatus}
+**Alternative Names:** ${module.alternativeNames}
+
+## Module Information
+- **Parent Module:** ${module.parentModule}
+- **Repository URL:** ${module.repoURL}
+- **Registry Reference:** ${module.publicRegistryReference}
+
+## Parsed Details
+- **Resource Type:** ${avmDetails.resourceType || 'Not found'}
+- **API Version:** ${avmDetails.apiVersion || 'Not found'}
+- **BR Endpoint:** ${avmDetails.brEndpoint || 'Not found'}
+- **Documentation URL:** ${avmDetails.url}
+
+## Description
+${module.description}
+
+## Documentation
+${module.markdown}`;
+
+        return {
+            contents: [{
+                uri: `resource://get_avm_details/${moduleName}`,
+                text: detailsText
+            }]
         };
     }
 );
