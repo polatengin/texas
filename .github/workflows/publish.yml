@@ -6,6 +6,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # To push commits and tags
+      id-token: write  # To use OIDC for npm authentication
 
     steps:
       - name: Checkout code
@@ -63,9 +66,7 @@ jobs:
           git push origin "v${{ env.NEW_VERSION }}"
 
       - name: Publish to NPM
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
 
       - name: Create GitHub Release
         uses: actions/create-release@v1
