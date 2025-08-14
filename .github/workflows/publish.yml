@@ -109,18 +109,30 @@ jobs:
           echo "🔐 Testing npm access:"
           npm access list packages @polatengin 2>/dev/null || echo "Cannot list packages (this is normal with OIDC)"
 
+      - name: Test npm permissions and package access
+        run: |
+          echo "Testing npm permissions and package access..."
+          
+          echo "1. Test if we can query the existing package:"
+          npm view @polatengin/texas --json | head -20 || echo "Cannot view package details"
+          
+          echo "2. Test if we can query package versions:"
+          npm view @polatengin/texas versions --json || echo "Cannot view versions"
+          
+          echo "3. Check if we can access as the owner:"
+          npm owner ls @polatengin/texas || echo "Cannot list owners (might be permissions issue)"
+          
+          echo "4. Try to verify our publishing rights:"
+          # This might give us a more specific error
+          npm publish --dry-run --provenance || echo "Dry run failed"
+
       - name: Publish to NPM
         run: |
           echo "🚀 Publishing @polatengin/texas@${{ env.NEW_VERSION }}..."
           
-          # For trusted publisher, we might need to be more explicit
           echo "Attempting publish with OIDC trusted publisher..."
           
-          # Remove any conflicting config and try minimal approach
-          npm config delete @polatengin:registry 2>/dev/null || true
-          npm config delete access 2>/dev/null || true
-          
-          # The package.json publishConfig should handle access
+          # Clean approach - let OIDC and package.json handle everything
           npm publish --provenance
 
       - name: Commit version bump
