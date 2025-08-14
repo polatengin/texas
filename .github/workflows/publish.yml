@@ -82,22 +82,46 @@ jobs:
             echo "✅ Version ${{ env.NEW_VERSION }} is safe to publish"
           fi
 
-      - name: Configure npm for scoped packages
+      - name: Prepare for npm publish
         run: |
-          echo "Configuring npm for scoped package publication..."
-          npm config set access public
-          npm config set @polatengin:registry https://registry.npmjs.org/
+          echo "📋 Preparing for npm publish..."
+          echo "Using package.json publishConfig and OIDC trusted publisher"
+          echo "Package: $(node -p "require('./package.json').name")"
+          echo "Version: $(node -p "require('./package.json').version")"
+          echo "PublishConfig: $(node -p "JSON.stringify(require('./package.json').publishConfig || {})")"
+
+      - name: Debug npm and OIDC configuration
+        run: |
+          echo "Debugging npm and OIDC configuration..."
+          echo "Repository: ${{ github.repository }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Token: ${{ github.token }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          
+          echo "📦 Package details:"
+          echo "Package name: $(node -p "require('./package.json').name")"
+          echo "Package version: $(node -p "require('./package.json').version")"
+          
+          echo "🌐 NPM configuration:"
           npm config list
+          
+          echo "🔐 Testing npm access:"
+          npm access list packages @polatengin 2>/dev/null || echo "Cannot list packages (this is normal with OIDC)"
 
       - name: Publish to NPM
         run: |
           echo "🚀 Publishing @polatengin/texas@${{ env.NEW_VERSION }}..."
-          echo "Registry config:"
-          npm config get registry
-          echo "Auth config:"
-          npm config get //registry.npmjs.org/:_authToken | cut -c1-20
-          echo "Publishing..."
-          npm publish --provenance --access public
+          
+          # For trusted publisher, we might need to be more explicit
+          echo "Attempting publish with OIDC trusted publisher..."
+          
+          # Remove any conflicting config and try minimal approach
+          npm config delete @polatengin:registry 2>/dev/null || true
+          npm config delete access 2>/dev/null || true
+          
+          # The package.json publishConfig should handle access
+          npm publish --provenance
 
       - name: Commit version bump
         run: |
