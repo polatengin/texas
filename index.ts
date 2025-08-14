@@ -427,21 +427,12 @@ server.registerTool(
     }
 );
 
-const log = (message: string) => {
-    console.info(`\n[${new Date().toISOString()}] ${message}`);
-};
-
 const handleShutdown = () => {
-    log(`AVM MCP Server received shutdown signal, shutting down gracefully...`);
     process.exit(0);
 };
-
-log(`AVM MCP Server starting...`);
 
 process.on('SIGINT', handleShutdown);
 process.on('SIGTERM', handleShutdown);
 process.on('exit', handleShutdown);
 
 await server.connect(new StdioServerTransport());
-
-log(`AVM MCP Server started successfully and listening for connections`);
