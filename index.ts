@@ -3,110 +3,215 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { load } from "cheerio";
 
-function parseAvmDetailsFromMarkdown(markdownContent: string, avmDocName: string) {
-    const details = {
-        url: "",
-        resourceType: "",
-        apiVersion: "",
-        brEndpoint: "",
-    };
-
-    const resourceTypeRegex = /\|\s*`([^`]+)`\s*\|\s*\[([\d-]{8})\]/m;
-    const match = markdownContent.match(resourceTypeRegex);
-
-    if (match && match[1] && match[2]) {
-        details.resourceType = match[1].trim();
-        details.apiVersion = match[2].trim();
-        details.url = markdownContent.split('\n')[0].trim();
-
-        const parts = details.resourceType.split('/');
-        if (parts.length >= 2 && parts[0].startsWith('Microsoft.')) {
-            details.brEndpoint = `br/public:avm/res/${details.resourceType}:${details.apiVersion}`;
-        } else {
-            details.brEndpoint = `br/public:avm/res/Microsoft.Unknown/${avmDocName.replace(/-/g, '')}:${details.apiVersion}`;
-        }
-    } else {
-        console.warn(`Could not extract resource type or API version from markdown for ${avmDocName}.`);
-        const parts = avmDocName.split('-');
-        if (parts.length >= 2) {
-            const providerHint = parts[0];
-            const resourceTypeHint = parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
-            details.brEndpoint = `br/public:avm/res/Microsoft.${providerHint}/${resourceTypeHint}s:${details.apiVersion}`;
-        } else {
-            details.brEndpoint = `br/public:avm/res/Microsoft.Unknown/${avmDocName.replace(/-/g, '')}:${details.apiVersion}`;
-        }
-    }
-
-    return details;
+interface AVMModule {
+    providerNamespace: string;
+    resourceType: string;
+    moduleDisplayName: string;
+    alternativeNames: string;
+    moduleName: string;
+    parentModule: string;
+    moduleStatus: string;
+    repoURL: string;
+    publicRegistryReference: string;
+    description: string;
+    markdown: string;
 }
 
-async function getAllModulesFromWebsite(): Promise<Record<string, string>> {
-    const response = await fetch("https://azure.github.io/Azure-Verified-Modules/indexes/bicep/bicep-resource-modules/");
-    const html = await response.text();
-    const $ = load(html);
+const parseCsvLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
 
-    const modules: Record<string, string> = {};
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
 
-    let allModulesSection = $('h3').filter((_, el) => $(el).text().includes('All modules'));
-
-    if (allModulesSection.length === 0) {
-        $('table').each((_, table) => {
-            const rows = $(table).find('tr');
-            if (rows.length > 10) {
-                allModulesSection = $(table).prev('h3');
-                return false;
+        if (char === '"' && !inQuotes) {
+            inQuotes = true;
+        } else if (char === '"' && inQuotes) {
+            if (nextChar === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = false;
             }
-        });
-    }
-
-    if (allModulesSection.length > 0) {
-        let currentElement = allModulesSection.next();
-
-        while (currentElement.length > 0 && !currentElement.is('table')) {
-            if (currentElement.find('table').length > 0) {
-                currentElement = currentElement.find('table').first();
-                break;
-            }
-            currentElement = currentElement.next();
-        }
-
-        if (currentElement.is('table')) {
-            currentElement.find('tr').each((_, row) => {
-                const cells = $(row).find('td');
-                if (cells.length >= 4) {
-                    const nameText = $(cells[1]).text().trim();
-                    const url = $(cells[1]).find('a').attr('href') || '';
-                    modules[nameText] = url;
-                }
-            });
+        } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
         }
     }
 
-    if (Object.keys(modules).length === 0) {
-        $('table tr').each((_, row) => {
-            const cells = $(row).find('td');
-            if (cells.length >= 3) {
-                const secondCell = $(cells[1]).text().trim();
+    result.push(current.trim());
+    return result;
+};
 
-                const parts = secondCell.split(' ');
-                const moduleName = parts[0];
+const fetchMarkdownWithRetry = async (url: string, moduleName: string, maxRetries = 3): Promise<{ content: string; status: string }> => {
+    if (!url) {
+        return { content: '', status: 'no-url' };
+    }
 
-                modules[moduleName] = moduleName;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(url);
+            if (response.ok) {
+                const content = await response.text();
+                return { content, status: 'success' };
+            }
+            if (response.status === 404) {
+                return { content: '', status: '404' };
+            }
+            if (response.status === 403) {
+                return { content: '', status: 'rate-limited' };
+            }
+            return { content: '', status: `http-${response.status}` };
+        } catch (error) {
+            if (attempt === maxRetries) {
+                return { content: '', status: 'network-error' };
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+    return { content: '', status: 'unknown-error' };
+};
+
+const getAllModules = async (): Promise<AVMModule[]> => {
+    const response = await fetch("https://raw.githubusercontent.com/Azure/Azure-Verified-Modules/refs/heads/main/docs/static/module-indexes/BicepResourceModules.csv");
+
+    const csvData = await response.text();
+
+    const lines = csvData.split('\n').filter(line => line.trim());
+
+    const modulePromises: Promise<AVMModule>[] = [];
+    const fetchStats = {
+        success: 0,
+        notFound: 0,
+        rateLimited: 0,
+        networkError: 0,
+        noUrl: 0,
+        other: 0
+    };
+
+    for (let i = 1; i < lines.length; i++) {
+        const values = parseCsvLine(lines[i]);
+        const moduleStatus = values[6] || '';
+
+        if (moduleStatus.toLowerCase() === 'proposed') {
+            continue;
+        }
+
+        const repoURL = values[7] || '';
+        const moduleName = values[4] || `module-${i}`;
+
+        const modulePromise = (async (): Promise<AVMModule> => {
+            let markdownContent = '';
+            let fetchStatus = 'no-url';
+
+            if (repoURL) {
+                const readmeURL = repoURL + '/README.md';
+                const result = await fetchMarkdownWithRetry(readmeURL, moduleName);
+                markdownContent = result.content;
+                fetchStatus = result.status;
+            }
+
+            switch (fetchStatus) {
+                case 'success':
+                    fetchStats.success++;
+                    break;
+                case '404':
+                    fetchStats.notFound++;
+                    break;
+                case 'rate-limited':
+                    fetchStats.rateLimited++;
+                    break;
+                case 'network-error':
+                    fetchStats.networkError++;
+                    break;
+                case 'no-url':
+                    fetchStats.noUrl++;
+                    break;
+                default:
+                    fetchStats.other++;
+                    break;
+            }
+
+            return {
+                providerNamespace: values[0] || '',
+                resourceType: values[1] || '',
+                moduleDisplayName: values[2] || '',
+                alternativeNames: values[3] || '',
+                moduleName: values[4] || '',
+                parentModule: values[5] || '',
+                moduleStatus: values[6] || '',
+                repoURL: values[7] || '',
+                publicRegistryReference: values[8] || '',
+                description: values[16] || '',
+                markdown: markdownContent
+            };
+        })();
+
+        modulePromises.push(modulePromise);
+    }
+
+    const batchSize = 20;
+    const modules: AVMModule[] = [];
+
+    for (let i = 0; i < modulePromises.length; i += batchSize) {
+        const batch = modulePromises.slice(i, i + batchSize);
+        const batchResults = await Promise.allSettled(batch);
+
+        batchResults.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                modules.push(result.value);
+            } else {
+                const values = parseCsvLine(lines[i + index + 1]);
+                modules.push({
+                    providerNamespace: values[0] || '',
+                    resourceType: values[1] || '',
+                    moduleDisplayName: values[2] || '',
+                    alternativeNames: values[3] || '',
+                    moduleName: values[4] || '',
+                    parentModule: values[5] || '',
+                    moduleStatus: values[6] || '',
+                    repoURL: values[7] || '',
+                    publicRegistryReference: values[8] || '',
+                    description: values[16] || '',
+                    markdown: ''
+                });
             }
         });
+
+        if (i + batchSize < modulePromises.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
     }
 
     return modules;
-}
+};
+
+const parseAvmDetailsFromMarkdown = (markdownContent: string, moduleName: string) => {
+    // Extract resource type, API version, and BR endpoint from markdown content
+    // This is a simplified parser - adjust based on actual markdown structure
+    const resourceTypeMatch = markdownContent.match(/Resource Type[:\s]*([^\n\r]+)/i);
+    const apiVersionMatch = markdownContent.match(/API Version[:\s]*([^\n\r]+)/i);
+    const brEndpointMatch = markdownContent.match(/br\/public:([^\s\n\r]+)/);
+
+    return {
+        resourceType: resourceTypeMatch ? resourceTypeMatch[1].trim() : null,
+        apiVersion: apiVersionMatch ? apiVersionMatch[1].trim() : null,
+        brEndpoint: brEndpointMatch ? `br/public:${brEndpointMatch[1]}` : null,
+        url: `https://github.com/Azure/bicep-registry-modules/tree/main/${moduleName}`
+    };
+};
 
 const server = new McpServer({
     name: "AVM MCP Server",
     version: "0.0.1"
 });
 
-const modules = await getAllModulesFromWebsite();
+const modules = await getAllModules();
 
 server.resource(
     "list_avms",
@@ -117,9 +222,9 @@ server.resource(
     },
     async () => {
         return {
-            contents: Object.keys(modules).map(name => ({
-                uri: `resource://get_avm_details/${name}`,
-                text: name.replace(/-/g, ' ')
+            contents: modules.map(module => ({
+                uri: `resource://get_avm_details/${module.moduleName}`,
+                text: module.moduleDisplayName
             }))
         };
     }
@@ -133,15 +238,17 @@ server.tool(
     async (args) => {
         const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; found: boolean }> = {};
         for (const requestedResource of args.resources) {
-            const bestMatchDocName = Object.keys(modules).find(name => name.includes(requestedResource)) || null;
-            const docFilePath = bestMatchDocName ? modules[bestMatchDocName] : null;
+            const bestMatchModule = modules.find(module =>
+                module.moduleDisplayName.toLowerCase().includes(requestedResource.toLowerCase()) ||
+                module.alternativeNames.toLowerCase().includes(requestedResource.toLowerCase()) ||
+                module.resourceType.toLowerCase().includes(requestedResource.toLowerCase())
+            );
 
-            if (bestMatchDocName && docFilePath) {
-                const markdownContent = await fetch(docFilePath);
-                const avmDetails = parseAvmDetailsFromMarkdown(await markdownContent.text(), bestMatchDocName);
+            if (bestMatchModule) {
+                const avmDetails = parseAvmDetailsFromMarkdown(bestMatchModule.markdown, bestMatchModule.moduleName);
 
                 result[requestedResource] = {
-                    doc_name: bestMatchDocName,
+                    doc_name: bestMatchModule.moduleDisplayName,
                     resource_type: avmDetails.resourceType,
                     api_version: avmDetails.apiVersion,
                     br_endpoint: avmDetails.brEndpoint,
@@ -205,20 +312,22 @@ server.tool(
         const avmNotFound: string[] = [];
 
         for (const resourceType of resourcesToInclude) {
-            const bestMatchDocName = Object.keys(modules).find(name => name.includes(resourceType)) || null;
-            const docFilePath = bestMatchDocName ? modules[bestMatchDocName] : null;
+            const bestMatchModule = modules.find(module =>
+                module.moduleDisplayName.toLowerCase().includes(resourceType.toLowerCase()) ||
+                module.alternativeNames.toLowerCase().includes(resourceType.toLowerCase()) ||
+                module.resourceType.toLowerCase().includes(resourceType.toLowerCase())
+            );
 
-            if (bestMatchDocName && docFilePath) {
-                const markdownContent = await fetch(docFilePath);
-                const avmDetails = parseAvmDetailsFromMarkdown(await markdownContent.text(), bestMatchDocName);
+            if (bestMatchModule) {
+                const avmDetails = parseAvmDetailsFromMarkdown(bestMatchModule.markdown, bestMatchModule.moduleName);
 
                 collectedDocs.push(
-                    `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchDocName}.md)\n` +
+                    `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchModule.moduleDisplayName})\n` +
                     `**Resource Type:** \`${avmDetails.resourceType || 'Not found'}\`\n` +
                     `**API Version:** \`${avmDetails.apiVersion || 'Not found'}\`\n` +
                     `**Suggested Bicep Module Path (BR Endpoint):** \`${avmDetails.brEndpoint || 'Not found'}\`\n` +
                     `**Documentation Link:** \`${avmDetails.url || 'Not found'}\`\n\n` +
-                    `${markdownContent}\n` +
+                    `${bestMatchModule.markdown}\n` +
                     `---\n`
                 );
             } else {
