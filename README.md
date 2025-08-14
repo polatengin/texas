@@ -6,131 +6,227 @@ Model Context Protocol (MCP) servers provide a standardized way for tools and AI
 
 ## How is the AVM MCP server implemented in this repository?
 
-This repository implements an AVM MCP server using Node.js and Express, exposing an HTTP endpoint at `/mcp`. The server provides the following key features:
+This repository implements an AVM MCP server using Node.js and TypeScript with the official Model Context Protocol SDK. The server operates as a stdio-based MCP server and provides the following key features:
 
-- **Documentation Aggregation:**
-  - The `generate-docs.sh` script clones the official AVM Bicep registry modules repository, extracts all `README.md` files, and stores them in the local `docs/` directory. Each documentation file is prefixed with its GitHub URL for traceability.
+- **Real-time CSV Data Fetching:**
+  - Fetches the official AVM Bicep registry module index directly from the Azure Verified Modules repository CSV file
+  - Filters out "Proposed" status modules to include only available modules
+  - Processes 170+ verified AVM modules with parallel markdown fetching for optimal performance
 
-- **Resource Discovery and Matching:**
-  - The server loads all available documentation files and exposes a `list_avms` resource to enumerate all documented AVM modules.
-  - It implements fuzzy matching logic to map user queries (e.g., "storage account") to the best-matching AVM documentation, even if the names are not exact matches.
+- **Dynamic Documentation Retrieval:**
+  - Automatically fetches README.md documentation for each AVM module from GitHub
+  - Uses parallel processing with batching (20 modules per batch) for fast startup
+  - Implements retry logic with exponential backoff for reliable documentation fetching
+  - Provides detailed fetch statistics and error handling
 
-- **Resource Details and Metadata Extraction:**
-  - For each AVM documentation file, the server parses out key metadata such as resource type, API version, and constructs a suggested Bicep Registry (BR) endpoint.
-  - The `get_avm_details` resource returns the full documentation and extracted metadata for a given AVM module.
+- **MCP Resources:**
+  - **`list_avms`**: Lists all available AVM modules with their display names and module paths
+  - **`get_avm_details/{moduleName}`**: Returns comprehensive module details including metadata, documentation, and parsed information
 
-- **AI/Automation Integration:**
-  - The `mcp_find_avms` tool allows clients (including AI agents) to search for AVM modules by resource type and receive structured metadata and documentation links.
-  - The `generate_architecture` tool collects documentation and metadata for a set of requested resources, enabling downstream tools or agents to generate Bicep architectures or provide recommendations.
+- **MCP Tools:**
+  - **`mcp_find_avms`**: Searches for AVM modules by resource type with fuzzy matching across module names, alternative names, and resource types
+  - **`generate_architecture`**: Collects comprehensive documentation for multiple resource types to enable AI-driven Bicep architecture generation
+
+- **Intelligent Parsing:**
+  - Extracts resource types, API versions, and Bicep Registry (BR) endpoints from module documentation
+  - Constructs GitHub documentation URLs for each module
+  - Provides structured metadata for easy consumption by AI agents and automation tools
 
 - **MCP Protocol Compliance:**
-  - The server uses the `@modelcontextprotocol/sdk` to implement the MCP protocol, ensuring compatibility with clients and tools that speak MCP.
+  - Uses the official `@modelcontextprotocol/sdk` for full MCP compatibility
+  - Operates over stdio transport for seamless integration with MCP clients
+  - Supports both resource discovery and tool-based interactions
 
-This design enables seamless integration of AVM documentation into AI-driven workflows, infrastructure automation, and developer tools, making it easier to discover, use, and reason about Azure Bicep modules programmatically.
+This design enables seamless integration of real-time AVM documentation into AI-driven workflows, infrastructure automation, and developer tools, making it easier to discover, use, and reason about Azure Bicep modules programmatically.
 
 ## How to run the AVM MCP server locally
 
-- **Prerequisites:**
+### Prerequisites
 
-Ensure you have the Node.js (version 23 or higher) installed.
+- **Node.js:** Ensure you have Node.js (version 18 or higher) installed
+- **npm:** Node Package Manager (comes with Node.js)
 
-- **Clone the Repository:**
+### Option 1: Install from npm (Recommended)
+
+The easiest way to use the AVM MCP server is to install it directly from npm:
 
 ```bash
-git clone https://github.com/polatengin/texas
+# Install globally
+npm install -g @polatengin/texas
 
+# Run the server
+texas
+```
+
+### Option 2: Run from source
+
+If you want to run from source or contribute to the project:
+
+**Clone the Repository:**
+```bash
+git clone https://github.com/polatengin/texas
 cd texas
 ```
 
-- **Install Dependencies:**
-
-Ensure you have Node.js installed, then run:
-
+**Install Dependencies:**
 ```bash
 npm install
 ```
 
-- **Generate Documentation:**
-
-Run the script to clone the AVM Bicep registry and generate documentation:
-
+**Build the Project:**
 ```bash
-./generate-docs.sh
+npm run build
 ```
 
-- **Start the Server:**
-
-Start the MCP server using:
-
+**Start the Server:**
 ```bash
 npm start
 ```
 
-- **Access the MCP Endpoint:**
+### Server Startup Process
 
-The server will be available at `http://localhost:3000/mcp`.
+When you start the server, it will:
 
-## How to deploy the AVM MCP server to Azure Container Instances
+1. **Fetch AVM Module Index**: Downloads the latest CSV index from Azure Verified Modules repository
+2. **Filter Modules**: Excludes "Proposed" status modules (keeps ~170 available modules)
+3. **Fetch Documentation**: Downloads README.md files for each module in parallel batches
+4. **Start MCP Server**: Begins listening for MCP connections over stdio
 
-To deploy the AVM MCP server to Azure Container Instances, follow these steps:
+The initial startup takes about 30-60 seconds as it fetches documentation for all modules.
 
-### Prerequisites
+### Using the MCP Server
 
-- **Azure CLI:** Ensure you have the Azure CLI installed and configured with your Azure account.
+The server operates over stdio and is designed to be used by MCP clients. It doesn't provide an HTTP endpoint but instead communicates using the Model Context Protocol over standard input/output.
 
-- **Docker:** Ensure you have Docker installed to build the container image.
+**Available MCP Resources:**
+- `list_avms` - Lists all available AVM modules
+- `get_avm_details/{moduleName}` - Get detailed information about a specific module
 
-### Steps to Deploy
+**Available MCP Tools:**
+- `mcp_find_avms` - Search for modules by resource type
+- `generate_architecture` - Generate architecture documentation for multiple resources
 
-Generate random prefix for the resources so that they will be uniqu;
+## Add AVM MCP Server to VS Code
 
-```bash
-export RANDOM_PREFIX=$(openssl rand -hex 4)
+To use the AVM MCP server with GitHub Copilot in Visual Studio Code:
+
+### Option 1: Using the npm package (Recommended)
+
+1. **Install the package globally:**
+   ```bash
+   npm install -g @polatengin/texas
+   ```
+
+2. **Configure VS Code MCP settings:**
+   - Create or update `.vscode/mcp.json` in your workspace:
+   ```json
+   {
+     "servers": {
+       "texas": {
+         "type": "stdio",
+         "command": "texas"
+       }
+     }
+   }
+   ```
+
+### Option 2: Using local development version
+
+If you're running from source, configure `.vscode/mcp.json` as:
+```json
+{
+  "servers": {
+    "local-dev": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["dist/index.js"]
+    }
+  }
+}
 ```
 
-Use the Azure CLI to create a resource group:
+### Using with GitHub Copilot
 
-```bash
-az group create --name "${RANDOM_PREFIX}-texas-rg" --location "westus"
-```
+1. **Open VS Code** and ensure GitHub Copilot extension is installed
+2. **Toggle Chat**: Click the "Toggle Chat" button or use `Ctrl+Shift+I`
+3. **Switch to Agent Mode**: Change from "Ask" mode to "Agent" mode
+4. **Select Tools**: Click "Select Tools" and then "Add More Tools"
+5. **Choose AVM MCP Server**: Select the configured MCP server from the list
 
-Create an Azure Container Registry to store the MCP server image:
+### Verifying the Connection
 
-```bash
-az acr create --resource-group "${RANDOM_PREFIX}-texas-rg" --name "${RANDOM_PREFIX}texasacr" --location westus --sku Basic --admin-enabled true
-```
+The MCP server will start automatically when VS Code connects to it. You should see startup logs indicating:
+- CSV data fetching
+- Module documentation retrieval
+- Server ready status
 
-Generate the new tag for the Docker image:
+### Performance Note
 
-```bash
-export TAG="v$(date +%Y%m%d%H%M%S)"
-```
-
-Build the Docker image and push it to the Azure Container Registry:
-
-```bash
-docker build -t "${RANDOM_PREFIX}texasacr.azurecr.io/avm-mcp-server:${TAG}" .
-docker push "${RANDOM_PREFIX}texasacr.azurecr.io/avm-mcp-server:${TAG}"
-```
-
-Create an Azure Container Instance using the pushed image:
-
-```bash
-az container create --resource-group "${RANDOM_PREFIX}-texas-rg" --name "${RANDOM_PREFIX}-texas-app" --image "${RANDOM_PREFIX}texasacr.azurecr.io/avm-mcp-server:${TAG}" --registry-login-server "${RANDOM_PREFIX}texasacr.azurecr.io" --registry-username "${RANDOM_PREFIX}texasacr" --registry-password $(az acr credential show --name "${RANDOM_PREFIX}texasacr" --query passwords[0].value -o tsv) --ports 3000 --protocol TCP --location westus --cpu 1 --memory 1.5 --dns-name-label "avm-mcp-server-$(date +%s)" --restart-policy Always --environment-variables NODE_ENV=production
-```
-
-After the container is running, we can test access the MCP server using the following command:
-
-```bash
-curl "http://$(az container show --resource-group "${RANDOM_PREFIX}-texas-rg" --name "${RANDOM_PREFIX}-texas-app" --query "ipAddress.fqdn" -o tsv):3000/health"
-```
-
-## Add AVM MCP Server to VSCode
-
-To add the AVM MCP server to Visual Studio Code, click on the "Toggle Chat" button on the VSCode window, then switch to the "Agent" mode from the "Ask" mode. In the "Agent" model, click on the "Select Tools" button and then scroll down and click the "Add More Tool" button. Fill out the questions.
+The first connection may take 30-60 seconds as the server fetches documentation for ~170 AVM modules. Subsequent operations will be fast as the data is cached in memory.
 
 ## Example Usage
 
+Once configured with GitHub Copilot in VS Code, you can use natural language to interact with Azure Verified Modules:
+
+### Basic Module Discovery
 ```text
-Generate infrastructure architecture in a Bicep file using AVM modules, I want a storage account, a Redis and two VMs, please
+List all available AVM storage modules
 ```
+
+### Architecture Generation
+```text
+Generate infrastructure architecture in a Bicep file using AVM modules, I want a storage account, a Redis cache and two VMs, please
+```
+
+### Specific Module Information
+```text
+Show me details about the storage account AVM module including parameters and examples
+```
+
+### Multi-Resource Architectures
+```text
+Create a Bicep template using AVM modules for:
+- Storage account with blob containers
+- Key Vault for secrets
+- App Service with managed identity
+- Application Insights for monitoring
+```
+
+### Module Search and Comparison
+```text
+Find AVM modules for container hosting and compare their features
+```
+
+The MCP server will automatically:
+- Search for relevant AVM modules based on your requirements
+- Provide detailed documentation and examples
+- Generate suggested Bicep code using proper AVM module references
+- Include best practices and parameter configurations
+
+## Installation & Publishing
+
+### Installing the Package
+
+```bash
+# Global installation (recommended for CLI usage)
+npm install -g @polatengin/texas
+
+# Local installation (for programmatic usage)
+npm install @polatengin/texas
+```
+
+### Package Information
+
+- **Package Name**: `@polatengin/texas`
+- **Current Version**: `0.0.2`
+- **Registry**: [npm registry](https://www.npmjs.com/package/@polatengin/texas)
+- **License**: MIT
+- **Repository**: [GitHub](https://github.com/polatengin/texas)
+
+### Automated Publishing
+
+This project uses GitHub Actions for automated publishing to npm with:
+- Manual workflow triggering for controlled releases
+- Automatic patch version incrementing
+- Trusted Publisher (OIDC) authentication for secure publishing
+- Provenance attestation for supply chain security
