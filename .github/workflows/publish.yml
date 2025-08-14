@@ -130,10 +130,16 @@ jobs:
         run: |
           echo "🚀 Publishing @polatengin/texas@${{ env.NEW_VERSION }}..."
           
-          echo "Attempting publish with OIDC trusted publisher..."
+          echo "Based on diagnostics: dry-run works, but provenance is causing 404"
+          echo "Attempting publish without provenance first..."
           
-          # Clean approach - let OIDC and package.json handle everything
-          npm publish --provenance
+          # Try without provenance first (since package wasn't originally published with it)
+          if npm publish; then
+            echo "✅ Published successfully without provenance"
+          else
+            echo "❌ Publish without provenance failed, trying with provenance..."
+            npm publish --provenance
+          fi
 
       - name: Commit version bump
         run: |
