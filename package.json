@@ -4,7 +4,7 @@
   "description": "AVM MCP server using Model Context Protocol TypeScript SDK",
   "main": "dist/index.js",
   "bin": {
-    "texas": "./dist/index.js"
+    "texas": "dist/index.js"
   },
   "files": [
     "./dist/index.js",
