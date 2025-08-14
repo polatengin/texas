@@ -17,9 +17,11 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.17.2",
+    "marked": "16.1.2",
     "node-fetch": "3.3.2"
   },
   "devDependencies": {
+    "@types/marked": "6.0.0",
     "ts-node": "10.9.2",
     "tsx": "4.20.4",
     "typescript": "5.9.2"

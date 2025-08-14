@@ -3,6 +3,50 @@
 import { z } from "zod";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { marked } from "marked";
+
+interface MarkdownSection {
+    title: string;
+    level: number;
+    content: string;
+    anchor?: string;
+}
+
+interface ParsedMarkdown {
+    title?: string;
+    description?: string;
+    sections: MarkdownSection[];
+    codeBlocks: Array<{
+        language?: string;
+        code: string;
+        context?: string;
+    }>;
+    parameters: Array<{
+        name: string;
+        type?: string;
+        required?: boolean;
+        defaultValue?: string;
+        description?: string;
+    }>;
+    examples: Array<{
+        title?: string;
+        description?: string;
+        code: string;
+        language?: string;
+    }>;
+    resourceTypes: Array<{
+        type: string;
+        apiVersion?: string;
+        reference?: string;
+    }>;
+    outputs: Array<{
+        name: string;
+        type?: string;
+        description?: string;
+    }>;
+    usageInstructions?: string;
+    brEndpoint?: string;
+}
 
 interface AVMModule {
     providerNamespace: string;
@@ -16,6 +60,7 @@ interface AVMModule {
     publicRegistryReference: string;
     description: string;
     markdown: string;
+    parsedMarkdown?: ParsedMarkdown;
 }
 
 const parseCsvLine = (line: string): string[] => {
@@ -46,6 +91,165 @@ const parseCsvLine = (line: string): string[] => {
 
     result.push(current.trim());
     return result;
+};
+
+const parseMarkdownContent = (markdownContent: string): ParsedMarkdown => {
+    if (!markdownContent || markdownContent.trim() === '') {
+        return {
+            sections: [],
+            codeBlocks: [],
+            parameters: [],
+            examples: [],
+            resourceTypes: [],
+            outputs: []
+        };
+    }
+
+    const parsed: ParsedMarkdown = {
+        sections: [],
+        codeBlocks: [],
+        parameters: [],
+        examples: [],
+        resourceTypes: [],
+        outputs: []
+    };
+
+    // Parse markdown using marked and extract tokens
+    const tokens = marked.lexer(markdownContent);
+    
+    let currentSection: MarkdownSection | null = null;
+    let currentSectionContent = '';
+    
+    for (const token of tokens) {
+        if (token.type === 'heading') {
+            // Save previous section if exists
+            if (currentSection) {
+                currentSection.content = currentSectionContent.trim();
+                parsed.sections.push(currentSection);
+            }
+            
+            // Start new section
+            currentSection = {
+                title: token.text,
+                level: token.depth,
+                content: '',
+                anchor: token.text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+            };
+            currentSectionContent = '';
+            
+            // Extract main title and description
+            if (token.depth === 1 && !parsed.title) {
+                parsed.title = token.text;
+            }
+        } else if (token.type === 'code') {
+            // Extract code blocks
+            parsed.codeBlocks.push({
+                language: token.lang || undefined,
+                code: token.text,
+                context: currentSection?.title
+            });
+            
+            // Check if it's an example
+            if (currentSection && (
+                currentSection.title.toLowerCase().includes('example') ||
+                currentSection.title.toLowerCase().includes('usage')
+            )) {
+                parsed.examples.push({
+                    title: currentSection.title,
+                    code: token.text,
+                    language: token.lang || undefined
+                });
+            }
+            
+            currentSectionContent += `\`\`\`${token.lang || ''}\n${token.text}\n\`\`\`\n\n`;
+        } else if (token.type === 'paragraph' || token.type === 'text') {
+            const text = token.text || '';
+            currentSectionContent += text + '\n\n';
+            
+            // Extract description from first paragraph if not set
+            if (!parsed.description && currentSection?.level === 1) {
+                parsed.description = text.substring(0, 200) + (text.length > 200 ? '...' : '');
+            }
+            
+            // Extract BR endpoint
+            const brMatch = text.match(/br\/public:([^\s\n\r<>`]+)/);
+            if (brMatch && !parsed.brEndpoint) {
+                parsed.brEndpoint = `br/public:${brMatch[1]}`;
+            }
+        } else if (token.type === 'table') {
+            // Parse tables for parameters, outputs, etc.
+            const headers = (token as any).header.map((h: any) => h.text.toLowerCase());
+            
+            for (const row of (token as any).rows) {
+                const rowData: Record<string, string> = {};
+                headers.forEach((header: string, index: number) => {
+                    rowData[header] = row[index]?.text || '';
+                });
+                
+                // Check if this is a parameters table
+                if (headers.includes('parameter') || headers.includes('name')) {
+                    if (currentSection?.title.toLowerCase().includes('parameter')) {
+                        parsed.parameters.push({
+                            name: rowData.parameter || rowData.name || '',
+                            type: rowData.type || undefined,
+                            required: rowData.required === 'Yes' || rowData.required === 'true',
+                            defaultValue: rowData.default || rowData['default value'] || undefined,
+                            description: rowData.description || undefined
+                        });
+                    }
+                }
+                
+                // Check if this is a resource types table
+                if (headers.includes('resource type')) {
+                    parsed.resourceTypes.push({
+                        type: rowData['resource type'] || '',
+                        apiVersion: rowData['api version'] || undefined,
+                        reference: rowData.references || rowData.reference || undefined
+                    });
+                }
+                
+                // Check if this is an outputs table
+                if (headers.includes('output') || (currentSection?.title.toLowerCase().includes('output') && headers.includes('name'))) {
+                    parsed.outputs.push({
+                        name: rowData.output || rowData.name || '',
+                        type: rowData.type || undefined,
+                        description: rowData.description || undefined
+                    });
+                }
+            }
+            
+            currentSectionContent += `[Table with ${(token as any).rows.length} rows]\n\n`;
+        } else if (token.type === 'list') {
+            // Handle lists
+            const listItems = (token as any).items.map((item: any) => 
+                typeof item === 'string' ? item : item.text || ''
+            ).join('\n- ');
+            currentSectionContent += `- ${listItems}\n\n`;
+        } else {
+            // Handle other content types
+            if ('text' in token) {
+                currentSectionContent += token.text + '\n\n';
+            }
+        }
+    }
+    
+    // Don't forget the last section
+    if (currentSection) {
+        currentSection.content = currentSectionContent.trim();
+        parsed.sections.push(currentSection);
+    }
+    
+    // Extract usage instructions from specific sections
+    const usageSection = parsed.sections.find(s => 
+        s.title.toLowerCase().includes('usage') || 
+        s.title.toLowerCase().includes('deployment') ||
+        s.title.toLowerCase().includes('quick start')
+    );
+    if (usageSection) {
+        parsed.usageInstructions = usageSection.content;
+    }
+    
+    return parsed;
 };
 
 const fetchMarkdownWithRetry = async (url: string, moduleName: string, maxRetries = 3): Promise<{ content: string; status: string }> => {
@@ -148,7 +352,8 @@ const getAllModules = async (): Promise<AVMModule[]> => {
                 repoURL: values[7] || '',
                 publicRegistryReference: values[8] || '',
                 description: values[16] || '',
-                markdown: markdownContent
+                markdown: markdownContent,
+                parsedMarkdown: markdownContent ? parseMarkdownContent(markdownContent) : undefined
             };
         })();
 
