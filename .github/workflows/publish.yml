@@ -65,6 +65,24 @@ jobs:
           git tag "v${{ env.NEW_VERSION }}"
           git push origin "v${{ env.NEW_VERSION }}"
 
+      - name: Check if package exists on npm
+        run: |
+          echo "Checking if package exists on npm registry..."
+          if npm view @polatengin/texas version 2>/dev/null; then
+            echo "✅ Package exists - this is an update"
+            echo "PACKAGE_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "📦 Package does not exist - this is first publication"
+            echo "PACKAGE_EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Configure npm for scoped packages
+        run: |
+          echo "Configuring npm for scoped package publication..."
+          npm config set access public
+          npm config set @polatengin:registry https://registry.npmjs.org/
+          npm config list
+
       - name: Publish to NPM
         run: npm publish --provenance --access public
 
