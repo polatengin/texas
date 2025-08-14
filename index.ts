@@ -285,10 +285,14 @@ ${module.markdown}`;
     }
 );
 
-server.tool(
+server.registerTool(
     "mcp_find_avms",
     {
-        resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app').")
+        title: "Find AVM Modules",
+        description: "Find AVM modules based on resource types",
+        inputSchema: {
+            resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app').")
+        }
     },
     async (args) => {
         const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; found: boolean }> = {};
@@ -330,11 +334,15 @@ server.tool(
     }
 );
 
-server.tool(
+server.registerTool(
     "generate_architecture",
     {
-        resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVMs."),
-        extra_context: z.string().optional().describe("Extra high-level architecture context provided by the user.")
+        title: "Generate Architecture",
+        description: "Generate a high-level architecture diagram based on the selected Azure resources.",
+        inputSchema: {
+            resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVMs."),
+            extra_context: z.string().optional().describe("Extra high-level architecture context provided by the user.")
+        },
     },
     async (params) => {
         const resourcesToInclude: string[] = params.resources || [];
