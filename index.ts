@@ -213,12 +213,12 @@ const server = new McpServer({
 
 const modules = await getAllModules();
 
-server.resource(
+server.registerResource(
     "list_avms",
     "resource://list_avms",
     {
-        description: "List all Bicep AVM Modules that have documentation",
-        params: z.object({})
+        title: "List AVM Modules",
+        description: "List all Bicep AVM Modules that have documentation"
     },
     async () => {
         return {
