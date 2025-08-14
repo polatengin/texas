@@ -178,6 +178,10 @@ List all available AVM storage modules
 Generate infrastructure architecture in a Bicep file using AVM modules, I want a storage account, a Redis cache and two VMs, please
 ```
 
+```text
+I want a Bicep file that uses AVM modules to create a Storage Account on Azure
+```
+
 ### Specific Module Information
 ```text
 Show me details about the storage account AVM module including parameters and examples
