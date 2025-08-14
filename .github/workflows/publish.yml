@@ -57,12 +57,29 @@ jobs:
       - name: Check if package exists on npm
         run: |
           echo "Checking if package exists on npm registry..."
-          if npm view @polatengin/texas version 2>/dev/null; then
-            echo "✅ Package exists - this is an update"
+          if EXISTING_VERSION=$(npm view @polatengin/texas version 2>/dev/null); then
+            echo "✅ Package exists - current published version: $EXISTING_VERSION"
             echo "PACKAGE_EXISTS=true" >> $GITHUB_ENV
+            echo "EXISTING_VERSION=$EXISTING_VERSION" >> $GITHUB_ENV
           else
             echo "📦 Package does not exist - this is first publication"
             echo "PACKAGE_EXISTS=false" >> $GITHUB_ENV
+            echo "EXISTING_VERSION=none" >> $GITHUB_ENV
+          fi
+
+      - name: Check version conflict
+        run: |
+          echo "Current package.json version: ${{ env.NEW_VERSION }}"
+          echo "Published npm version: ${{ env.EXISTING_VERSION }}"
+          
+          if [ "${{ env.PACKAGE_EXISTS }}" = "true" ] && [ "${{ env.NEW_VERSION }}" = "${{ env.EXISTING_VERSION }}" ]; then
+            echo "❌ ERROR: Version ${{ env.NEW_VERSION }} already exists on npm!"
+            echo "This happens when a previous workflow run failed after version bump but before successful publish."
+            echo "Incrementing to next patch version..."
+            npm version patch --no-git-tag-version
+            echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+          else
+            echo "✅ Version ${{ env.NEW_VERSION }} is safe to publish"
           fi
 
       - name: Configure npm for scoped packages
@@ -73,7 +90,14 @@ jobs:
           npm config list
 
       - name: Publish to NPM
-        run: npm publish --provenance --access public
+        run: |
+          echo "🚀 Publishing @polatengin/texas@${{ env.NEW_VERSION }}..."
+          echo "Registry config:"
+          npm config get registry
+          echo "Auth config:"
+          npm config get //registry.npmjs.org/:_authToken | cut -c1-20
+          echo "Publishing..."
+          npm publish --provenance --access public
 
       - name: Commit version bump
         run: |
