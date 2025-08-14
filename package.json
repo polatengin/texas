@@ -1,6 +1,6 @@
 {
-  "name": "@polatengin/texas",
-  "version": "0.0.2",
+  "name": "@polatengin/texas-project",
+  "version": "0.0.1",
   "description": "AVM MCP server using Model Context Protocol TypeScript SDK",
   "main": "dist/index.js",
   "bin": {
