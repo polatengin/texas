@@ -112,27 +112,26 @@ To use the AVM MCP server with GitHub Copilot in Visual Studio Code:
 
 ### Option 1: Using the npm package (Recommended)
 
-1. **Install the package globally:**
-   ```bash
-   npm install -g @polatengin/texas
-   ```
+Create or update `.vscode/mcp.json` in your workspace:
 
-2. **Configure VS Code MCP settings:**
-   - Create or update `.vscode/mcp.json` in your workspace:
-   ```json
-   {
-     "servers": {
-       "texas": {
-         "type": "stdio",
-         "command": "texas"
-       }
-     }
-   }
-   ```
+```json
+{
+  "servers": {
+    "texas": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@polatengin/texas"
+      ]
+    }
+  }
+}
+```
 
 ### Option 2: Using local development version
 
 If you're running from source, configure `.vscode/mcp.json` as:
+
 ```json
 {
   "servers": {
