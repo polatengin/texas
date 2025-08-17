@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { z } from "zod";
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { marked } from "marked";
 
@@ -403,7 +403,6 @@ const server = new McpServer({
     version: "0.0.1"
 });
 
-const modules = await getAllModules();
 
 server.registerResource(
     "list_avms",
@@ -422,33 +421,24 @@ server.registerResource(
     }
 );
 
-server.registerResource(
-    "get_avm_details",
-    new ResourceTemplate("resource://get_avm_details/{moduleName}", { list: undefined }),
-    {
-        title: "Get AVM Module Details",
-        description: "Get detailed information about a specific AVM module",
-    },
-    async (_, { moduleName }) => {
-        const module = modules.find(m => m.moduleName === moduleName);
-
-        if (!module) {
-            return {
-                contents: [{
-                    uri: `resource://get_avm_details/${moduleName}`,
-                    text: `Module not found: ${moduleName}`
-                }]
+// Register individual resources for each module
+for (const module of modules) {
+    server.registerResource(
+        `get_avm_details_${module.moduleName.replace(/\//g, '_')}`,
+        `resource://get_avm_details/${module.moduleName}`,
+        {
+            title: `Get details for ${module.moduleDisplayName}`,
+            description: `Get detailed information about the ${module.moduleDisplayName} AVM module`,
+        },
+        async () => {
+            const avmDetails = {
+                resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
+                apiVersion: module.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
+                brEndpoint: module.parsedMarkdown?.brEndpoint || 'Not found',
+                url: `https://github.com/Azure/bicep-registry-modules/tree/main/${module.moduleName}`
             };
-        }
 
-        const avmDetails = {
-            resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
-            apiVersion: module.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
-            brEndpoint: module.parsedMarkdown?.brEndpoint || 'Not found',
-            url: `https://github.com/Azure/bicep-registry-modules/tree/main/${module.moduleName}`
-        };
-
-        const detailsText = `# ${module.moduleDisplayName}
+            const detailsText = `# ${module.moduleDisplayName}
 
 **Provider Namespace:** ${module.providerNamespace}
 **Resource Type:** ${module.resourceType}
@@ -473,14 +463,15 @@ ${module.description}
 ## Documentation
 ${module.markdown}`;
 
-        return {
-            contents: [{
-                uri: `resource://get_avm_details/${moduleName}`,
-                text: detailsText
-            }]
-        };
-    }
-);
+            return {
+                contents: [{
+                    uri: `resource://get_avm_details/${module.moduleName}`,
+                    text: detailsText
+                }]
+            };
+        }
+    );
+}
 
 server.registerTool(
     "mcp_find_avms",
