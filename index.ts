@@ -3,418 +3,82 @@
 import { z } from "zod";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { marked } from "marked";
-
-interface MarkdownSection {
-    title: string;
-    level: number;
-    content: string;
-    anchor?: string;
-}
-
-interface ParsedMarkdown {
-    title?: string;
-    description?: string;
-    sections: MarkdownSection[];
-    codeBlocks: Array<{
-        language?: string;
-        code: string;
-        context?: string;
-    }>;
-    parameters: Array<{
-        name: string;
-        type?: string;
-        required?: boolean;
-        defaultValue?: string;
-        description?: string;
-    }>;
-    examples: Array<{
-        title?: string;
-        description?: string;
-        code: string;
-        language?: string;
-    }>;
-    resourceTypes: Array<{
-        type: string;
-        apiVersion?: string;
-        reference?: string;
-    }>;
-    outputs: Array<{
-        name: string;
-        type?: string;
-        description?: string;
-    }>;
-    usageInstructions?: string;
-    brEndpoint?: string;
-}
-
-interface AVMModule {
-    providerNamespace: string;
-    resourceType: string;
-    moduleDisplayName: string;
-    alternativeNames: string;
-    moduleName: string;
-    parentModule: string;
-    moduleStatus: string;
-    repoURL: string;
-    publicRegistryReference: string;
-    description: string;
-    markdown: string;
-    parsedMarkdown?: ParsedMarkdown;
-}
-
-const parseCsvLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        const nextChar = line[i + 1];
-
-        if (char === '"' && !inQuotes) {
-            inQuotes = true;
-        } else if (char === '"' && inQuotes) {
-            if (nextChar === '"') {
-                current += '"';
-                i++;
-            } else {
-                inQuotes = false;
-            }
-        } else if (char === ',' && !inQuotes) {
-            result.push(current.trim());
-            current = '';
-        } else {
-            current += char;
-        }
-    }
-
-    result.push(current.trim());
-    return result;
-};
-
-const parseMarkdownContent = (markdownContent: string): ParsedMarkdown => {
-    if (!markdownContent || markdownContent.trim() === '') {
-        return {
-            sections: [],
-            codeBlocks: [],
-            parameters: [],
-            examples: [],
-            resourceTypes: [],
-            outputs: []
-        };
-    }
-
-    const parsed: ParsedMarkdown = {
-        sections: [],
-        codeBlocks: [],
-        parameters: [],
-        examples: [],
-        resourceTypes: [],
-        outputs: []
-    };
-
-    // Parse markdown using marked and extract tokens
-    const tokens = marked.lexer(markdownContent);
-    
-    let currentSection: MarkdownSection | null = null;
-    let currentSectionContent = '';
-    
-    for (const token of tokens) {
-        if (token.type === 'heading') {
-            // Save previous section if exists
-            if (currentSection) {
-                currentSection.content = currentSectionContent.trim();
-                parsed.sections.push(currentSection);
-            }
-            
-            // Start new section
-            currentSection = {
-                title: token.text,
-                level: token.depth,
-                content: '',
-                anchor: token.text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-            };
-            currentSectionContent = '';
-            
-            // Extract main title and description
-            if (token.depth === 1 && !parsed.title) {
-                parsed.title = token.text;
-            }
-        } else if (token.type === 'code') {
-            // Extract code blocks
-            parsed.codeBlocks.push({
-                language: token.lang || undefined,
-                code: token.text,
-                context: currentSection?.title
-            });
-            
-            // Check if it's an example
-            if (currentSection && (
-                currentSection.title.toLowerCase().includes('example') ||
-                currentSection.title.toLowerCase().includes('usage')
-            )) {
-                parsed.examples.push({
-                    title: currentSection.title,
-                    code: token.text,
-                    language: token.lang || undefined
-                });
-            }
-            
-            currentSectionContent += `\`\`\`${token.lang || ''}\n${token.text}\n\`\`\`\n\n`;
-        } else if (token.type === 'paragraph' || token.type === 'text') {
-            const text = token.text || '';
-            currentSectionContent += text + '\n\n';
-            
-            // Extract description from first paragraph if not set
-            if (!parsed.description && currentSection?.level === 1) {
-                parsed.description = text.substring(0, 200) + (text.length > 200 ? '...' : '');
-            }
-            
-            // Extract BR endpoint
-            const brMatch = text.match(/br\/public:([^\s\n\r<>`]+)/);
-            if (brMatch && !parsed.brEndpoint) {
-                parsed.brEndpoint = `br/public:${brMatch[1]}`;
-            }
-        } else if (token.type === 'table') {
-            // Parse tables for parameters, outputs, etc.
-            const headers = (token as any).header.map((h: any) => h.text.toLowerCase());
-            
-            for (const row of (token as any).rows) {
-                const rowData: Record<string, string> = {};
-                headers.forEach((header: string, index: number) => {
-                    rowData[header] = row[index]?.text || '';
-                });
-                
-                // Check if this is a parameters table
-                if (headers.includes('parameter') || headers.includes('name')) {
-                    if (currentSection?.title.toLowerCase().includes('parameter')) {
-                        parsed.parameters.push({
-                            name: rowData.parameter || rowData.name || '',
-                            type: rowData.type || undefined,
-                            required: rowData.required === 'Yes' || rowData.required === 'true',
-                            defaultValue: rowData.default || rowData['default value'] || undefined,
-                            description: rowData.description || undefined
-                        });
-                    }
-                }
-                
-                // Check if this is a resource types table
-                if (headers.includes('resource type')) {
-                    parsed.resourceTypes.push({
-                        type: rowData['resource type'] || '',
-                        apiVersion: rowData['api version'] || undefined,
-                        reference: rowData.references || rowData.reference || undefined
-                    });
-                }
-                
-                // Check if this is an outputs table
-                if (headers.includes('output') || (currentSection?.title.toLowerCase().includes('output') && headers.includes('name'))) {
-                    parsed.outputs.push({
-                        name: rowData.output || rowData.name || '',
-                        type: rowData.type || undefined,
-                        description: rowData.description || undefined
-                    });
-                }
-            }
-            
-            currentSectionContent += `[Table with ${(token as any).rows.length} rows]\n\n`;
-        } else if (token.type === 'list') {
-            // Handle lists
-            const listItems = (token as any).items.map((item: any) => 
-                typeof item === 'string' ? item : item.text || ''
-            ).join('\n- ');
-            currentSectionContent += `- ${listItems}\n\n`;
-        } else {
-            // Handle other content types
-            if ('text' in token) {
-                currentSectionContent += token.text + '\n\n';
-            }
-        }
-    }
-    
-    // Don't forget the last section
-    if (currentSection) {
-        currentSection.content = currentSectionContent.trim();
-        parsed.sections.push(currentSection);
-    }
-    
-    // Extract usage instructions from specific sections
-    const usageSection = parsed.sections.find(s => 
-        s.title.toLowerCase().includes('usage') || 
-        s.title.toLowerCase().includes('deployment') ||
-        s.title.toLowerCase().includes('quick start')
-    );
-    if (usageSection) {
-        parsed.usageInstructions = usageSection.content;
-    }
-    
-    return parsed;
-};
-
-const fetchMarkdownWithRetry = async (url: string, moduleName: string, maxRetries = 3): Promise<{ content: string; status: string }> => {
-    if (!url) {
-        return { content: '', status: 'no-url' };
-    }
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const response = await fetch(url);
-            if (response.ok) {
-                const content = await response.text();
-                return { content, status: 'success' };
-            }
-            if (response.status === 404) {
-                return { content: '', status: '404' };
-            }
-            if (response.status === 403) {
-                return { content: '', status: 'rate-limited' };
-            }
-            return { content: '', status: `http-${response.status}` };
-        } catch (error) {
-            if (attempt === maxRetries) {
-                return { content: '', status: 'network-error' };
-            }
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
-    }
-    return { content: '', status: 'unknown-error' };
-};
-
-const getAllModules = async (): Promise<AVMModule[]> => {
-    const response = await fetch("https://raw.githubusercontent.com/Azure/Azure-Verified-Modules/refs/heads/main/docs/static/module-indexes/BicepResourceModules.csv");
-
-    const csvData = await response.text();
-
-    const lines = csvData.split('\n').filter(line => line.trim());
-
-    const modulePromises: Promise<AVMModule>[] = [];
-    const fetchStats = {
-        success: 0,
-        notFound: 0,
-        rateLimited: 0,
-        networkError: 0,
-        noUrl: 0,
-        other: 0
-    };
-
-    for (let i = 1; i < lines.length; i++) {
-        const values = parseCsvLine(lines[i]);
-        const moduleStatus = values[6] || '';
-
-        if (moduleStatus.toLowerCase() === 'proposed') {
-            continue;
-        }
-
-        const repoURL = values[7] || '';
-        const moduleName = values[4] || `module-${i}`;
-
-        const modulePromise = (async (): Promise<AVMModule> => {
-            let markdownContent = '';
-            let fetchStatus = 'no-url';
-
-            if (repoURL) {
-                const readmeURL = repoURL + '/README.md';
-                const result = await fetchMarkdownWithRetry(readmeURL, moduleName);
-                markdownContent = result.content;
-                fetchStatus = result.status;
-            }
-
-            switch (fetchStatus) {
-                case 'success':
-                    fetchStats.success++;
-                    break;
-                case '404':
-                    fetchStats.notFound++;
-                    break;
-                case 'rate-limited':
-                    fetchStats.rateLimited++;
-                    break;
-                case 'network-error':
-                    fetchStats.networkError++;
-                    break;
-                case 'no-url':
-                    fetchStats.noUrl++;
-                    break;
-                default:
-                    fetchStats.other++;
-                    break;
-            }
-
-            return {
-                providerNamespace: values[0] || '',
-                resourceType: values[1] || '',
-                moduleDisplayName: values[2] || '',
-                alternativeNames: values[3] || '',
-                moduleName: values[4] || '',
-                parentModule: values[5] || '',
-                moduleStatus: values[6] || '',
-                repoURL: values[7] || '',
-                publicRegistryReference: values[8] || '',
-                description: values[16] || '',
-                markdown: markdownContent,
-                parsedMarkdown: markdownContent ? parseMarkdownContent(markdownContent) : undefined
-            };
-        })();
-
-        modulePromises.push(modulePromise);
-    }
-
-    const batchSize = 20;
-    const modules: AVMModule[] = [];
-
-    for (let i = 0; i < modulePromises.length; i += batchSize) {
-        const batch = modulePromises.slice(i, i + batchSize);
-        const batchResults = await Promise.allSettled(batch);
-
-        batchResults.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                modules.push(result.value);
-            } else {
-                const values = parseCsvLine(lines[i + index + 1]);
-                modules.push({
-                    providerNamespace: values[0] || '',
-                    resourceType: values[1] || '',
-                    moduleDisplayName: values[2] || '',
-                    alternativeNames: values[3] || '',
-                    moduleName: values[4] || '',
-                    parentModule: values[5] || '',
-                    moduleStatus: values[6] || '',
-                    repoURL: values[7] || '',
-                    publicRegistryReference: values[8] || '',
-                    description: values[16] || '',
-                    markdown: ''
-                });
-            }
-        });
-
-        if (i + batchSize < modulePromises.length) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-    }
-
-    return modules;
-};
-
-
+import { BicepAvmProvider } from "./providers/BicepAvmProvider.js";
+import { TerraformAvmProvider } from "./providers/TerraformAvmProvider.js";
+import type { AVMModule } from "./types.js";
+import { SERVER_NAME, SERVER_VERSION } from "./constants.js";
 
 const server = new McpServer({
-    name: "AVM MCP Server",
-    version: "0.0.1"
+    name: SERVER_NAME,
+    version: SERVER_VERSION
 });
 
-const modules = await getAllModules();
+const bicepProvider = new BicepAvmProvider();
+const terraformProvider = new TerraformAvmProvider();
+const bicepModules: AVMModule[] = await bicepProvider.loadAllModules();
+const terraformModules: AVMModule[] = await terraformProvider.loadAllModules();
+const allModules: AVMModule[] = [...bicepModules, ...terraformModules];
+
+// Helper function to determine if a module is Terraform
+const isTerraformModule = (module: AVMModule): boolean => {
+    return module.repoURL?.includes('terraform-azurerm') || 
+           module.publicRegistryReference?.includes('registry.terraform.io') ||
+           false;
+};
+
+// Helper function to filter modules by provider
+const filterModulesByProvider = (modules: AVMModule[], provider: 'bicep' | 'terraform' | 'both'): AVMModule[] => {
+    if (provider === 'both') return modules;
+    if (provider === 'terraform') return modules.filter(isTerraformModule);
+    return modules.filter(module => !isTerraformModule(module));
+};
 
 server.registerResource(
     "list_avms",
     "resource://list_avms",
     {
-        title: "List AVM Modules",
-        description: "List all Bicep AVM Modules that have documentation"
+        title: "List All AVM Modules",
+        description: "List all Bicep and Terraform AVM Modules that have documentation"
     },
     async () => {
         return {
-            contents: modules.map(module => ({
+            contents: allModules.map((module: AVMModule) => ({
+                uri: `resource://get_avm_details/${module.moduleName}`,
+                text: `${module.moduleDisplayName} (${isTerraformModule(module) ? 'Terraform' : 'Bicep'})`
+            }))
+        };
+    }
+);
+
+server.registerResource(
+    "list_bicep_avms",
+    "resource://list_bicep_avms",
+    {
+        title: "List Bicep AVM Modules",
+        description: "List only Bicep AVM Modules that have documentation"
+    },
+    async () => {
+        const bicepOnly = filterModulesByProvider(allModules, 'bicep');
+        return {
+            contents: bicepOnly.map((module: AVMModule) => ({
+                uri: `resource://get_avm_details/${module.moduleName}`,
+                text: module.moduleDisplayName
+            }))
+        };
+    }
+);
+
+server.registerResource(
+    "list_terraform_avms",
+    "resource://list_terraform_avms",
+    {
+        title: "List Terraform AVM Modules",
+        description: "List only Terraform AVM Modules that have documentation"
+    },
+    async () => {
+        const terraformOnly = filterModulesByProvider(allModules, 'terraform');
+        return {
+            contents: terraformOnly.map((module: AVMModule) => ({
                 uri: `resource://get_avm_details/${module.moduleName}`,
                 text: module.moduleDisplayName
             }))
@@ -429,8 +93,9 @@ server.registerResource(
         title: "Get AVM Module Details",
         description: "Get detailed information about a specific AVM module",
     },
-    async (_, { moduleName }) => {
-        const module = modules.find(m => m.moduleName === moduleName);
+    async (_ctx, variables) => {
+        const moduleName = variables.moduleName;
+        const module = allModules.find((m: AVMModule) => m.moduleName === moduleName);
 
         if (!module) {
             return {
@@ -441,11 +106,15 @@ server.registerResource(
             };
         }
 
+        // Determine the provider type and get the appropriate provider
+        const isterraform = isTerraformModule(module);
+        const currentProvider = isterraform ? terraformProvider : bicepProvider;
+
         const avmDetails = {
             resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
             apiVersion: module.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
             brEndpoint: module.parsedMarkdown?.brEndpoint || 'Not found',
-            url: `https://github.com/Azure/bicep-registry-modules/tree/main/${module.moduleName}`
+            url: currentProvider.getDocumentationUrl(module)
         };
 
         const detailsText = `# ${module.moduleDisplayName}
@@ -486,26 +155,34 @@ server.registerTool(
     "mcp_find_avms",
     {
         title: "Find AVM Modules",
-        description: "Find AVM modules based on resource types",
+        description: "Find AVM modules based on resource types with optional provider filtering",
         inputSchema: {
-            resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app').")
+            resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app')."),
+            provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default).")
         }
     },
-    async (args) => {
-        const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; found: boolean }> = {};
+    async (args: { resources: string[]; provider?: 'bicep' | 'terraform' | 'both' }) => {
+        const providerFilter = args.provider || 'both';
+        const filteredModules = filterModulesByProvider(allModules, providerFilter);
+        
+        const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; provider_type: string; found: boolean }> = {};
         for (const requestedResource of args.resources) {
-            const bestMatchModule = modules.find(module =>
+            const bestMatchModule = filteredModules.find((module: AVMModule) =>
                 module.moduleDisplayName.toLowerCase().includes(requestedResource.toLowerCase()) ||
                 module.alternativeNames.toLowerCase().includes(requestedResource.toLowerCase()) ||
                 module.resourceType.toLowerCase().includes(requestedResource.toLowerCase())
             );
 
             if (bestMatchModule) {
+                // Determine the provider type and get the appropriate provider
+                const isterraform = isTerraformModule(bestMatchModule);
+                const currentProvider = isterraform ? terraformProvider : bicepProvider;
+
                 const avmDetails = {
                     resourceType: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.type || bestMatchModule.resourceType || 'Not found',
                     apiVersion: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
                     brEndpoint: bestMatchModule.parsedMarkdown?.brEndpoint || 'Not found',
-                    url: `https://github.com/Azure/bicep-registry-modules/tree/main/${bestMatchModule.moduleName}`
+                    url: currentProvider.getDocumentationUrl(bestMatchModule)
                 };
 
                 result[requestedResource] = {
@@ -513,6 +190,7 @@ server.registerTool(
                     resource_type: avmDetails.resourceType,
                     api_version: avmDetails.apiVersion,
                     br_endpoint: avmDetails.brEndpoint,
+                    provider_type: isterraform ? 'Terraform' : 'Bicep',
                     found: true
                 };
             } else {
@@ -521,6 +199,7 @@ server.registerTool(
                     resource_type: null,
                     api_version: null,
                     br_endpoint: null,
+                    provider_type: "N/A",
                     found: false
                 };
             }
@@ -540,14 +219,16 @@ server.registerTool(
     "generate_architecture",
     {
         title: "Generate Architecture",
-        description: "Generate a high-level architecture diagram based on the selected Azure resources.",
+        description: "Generate a high-level architecture diagram based on the selected Azure resources with optional provider filtering.",
         inputSchema: {
             resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVMs."),
+            provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default)."),
             extra_context: z.string().optional().describe("Extra high-level architecture context provided by the user.")
         },
     },
-    async (params) => {
+    async (params: { resources: string[]; provider?: 'bicep' | 'terraform' | 'both'; extra_context?: string }) => {
         const resourcesToInclude: string[] = params.resources || [];
+        const providerFilter = params.provider || 'both';
         const extraContext = params.extra_context || 'No extra context supplied.';
 
         if (resourcesToInclude.length === 0) {
@@ -561,12 +242,18 @@ server.registerTool(
             };
         }
 
+        const filteredModules = filterModulesByProvider(allModules, providerFilter);
+        const providerTypeText = providerFilter === 'both' ? 'Bicep or Terraform' : 
+                                providerFilter === 'terraform' ? 'Terraform' : 'Bicep';
+
         let infoPayload = `
 /**
  * Information collected by AVM MCP Server for architecture generation.
  *
- * Use the following documentation to build the Bicep architecture.
+ * Use the following documentation to build the ${providerTypeText} architecture.
  * Pay close attention to module paths, parameters, and examples.
+ * Provider filter: ${providerFilter}
+ * Each module is marked with its provider type (Bicep or Terraform).
  *
  * Desired high-level architecture context:
  * ${extraContext}
@@ -577,25 +264,35 @@ server.registerTool(
         const avmNotFound: string[] = [];
 
         for (const resourceType of resourcesToInclude) {
-            const bestMatchModule = modules.find(module =>
+            const bestMatchModule = filteredModules.find((module: AVMModule) =>
                 module.moduleDisplayName.toLowerCase().includes(resourceType.toLowerCase()) ||
                 module.alternativeNames.toLowerCase().includes(resourceType.toLowerCase()) ||
                 module.resourceType.toLowerCase().includes(resourceType.toLowerCase())
             );
 
             if (bestMatchModule) {
+                // Determine the provider type and get the appropriate provider
+                const isterraform = isTerraformModule(bestMatchModule);
+                const currentProvider = isterraform ? terraformProvider : bicepProvider;
+
                 const avmDetails = {
                     resourceType: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.type || bestMatchModule.resourceType || 'Not found',
                     apiVersion: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
                     brEndpoint: bestMatchModule.parsedMarkdown?.brEndpoint || 'Not found',
-                    url: `https://github.com/Azure/bicep-registry-modules/tree/main/${bestMatchModule.moduleName}`
+                    url: currentProvider.getDocumentationUrl(bestMatchModule)
                 };
 
+                const providerType = isterraform ? 'Terraform' : 'Bicep';
+                const registryEndpoint = isterraform ? 
+                    `**Terraform Registry:** \`${bestMatchModule.publicRegistryReference}\`` : 
+                    `**Bicep Registry (BR Endpoint):** \`${avmDetails.brEndpoint}\``;
+
                 collectedDocs.push(
-                    `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchModule.moduleDisplayName})\n` +
+                    `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchModule.moduleDisplayName}) - ${providerType}\n` +
+                    `**Provider Type:** \`${providerType}\`\n` +
                     `**Resource Type:** \`${avmDetails.resourceType}\`\n` +
                     `**API Version:** \`${avmDetails.apiVersion}\`\n` +
-                    `**Suggested Bicep Module Path (BR Endpoint):** \`${avmDetails.brEndpoint}\`\n` +
+                    `${registryEndpoint}\n` +
                     `**Documentation Link:** \`${avmDetails.url}\`\n\n` +
                     `${bestMatchModule.markdown}\n` +
                     `---\n`
@@ -606,11 +303,14 @@ server.registerTool(
         }
 
         if (collectedDocs.length === 0 && avmNotFound.length > 0) {
+            const providerSpecificMessage = providerFilter === 'both' ? 
+                'both Bicep and Terraform' : 
+                providerFilter;
             return {
                 content: [
                     {
                         type: "text",
-                        text: `No AVM documentation could be found for the requested resources: ${avmNotFound.join(', ')}. Please verify the resource names. You can list available modules using the 'list_avms' resource, or find available AVMs at https://azure.github.io/Azure-Verified-Modules/indexes/bicep/.`
+                        text: `No ${providerSpecificMessage} AVM documentation could be found for the requested resources: ${avmNotFound.join(', ')}. Please verify the resource names and provider filter. You can list available modules using the 'list_avms' resource, or find available AVMs at https://azure.github.io/Azure-Verified-Modules/indexes/bicep/ (Bicep) or https://azure.github.io/Azure-Verified-Modules/indexes/terraform/ (Terraform).`
                     }
                 ]
             };
@@ -619,8 +319,11 @@ server.registerTool(
         infoPayload += collectedDocs.join('\n');
 
         if (avmNotFound.length > 0) {
-            infoPayload += `\nWARNING: No AVM documentation found for the following requested resources: ${avmNotFound.join(', ')}.\n`;
-            infoPayload += `Please ensure these are valid AVM module names. The AI may need to make assumptions or inform the user.\n`;
+            const providerSpecificMessage = providerFilter === 'both' ? 
+                'both Bicep and Terraform' : 
+                providerFilter;
+            infoPayload += `\nWARNING: No ${providerSpecificMessage} AVM documentation found for the following requested resources: ${avmNotFound.join(', ')}.\n`;
+            infoPayload += `Please ensure these are valid AVM module names for the specified provider(s). The AI may need to make assumptions or inform the user.\n`;
         }
 
         return {
