@@ -38,7 +38,8 @@ export class BicepAvmProvider extends AbstractAvmProvider {
       publicRegistryReference: row[8] || "",
       description: row[16] || "",
       markdown,
-      parsedMarkdown: parsed
+      parsedMarkdown: parsed,
+      providerType: 'bicep'
     };
   }
 

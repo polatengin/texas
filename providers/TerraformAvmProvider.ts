@@ -48,7 +48,8 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
       publicRegistryReference: row[8] || "",
       description: row[16] || "",
       markdown,
-      parsedMarkdown: undefined
+      parsedMarkdown: undefined,
+      providerType: 'terraform'
     };
   }
 

@@ -54,4 +54,5 @@ export interface AVMModule {
   description: string;
   markdown: string;
   parsedMarkdown?: ParsedMarkdown;
+  providerType: 'bicep' | 'terraform';
 } 

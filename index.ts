@@ -19,18 +19,11 @@ const bicepModules: AVMModule[] = await bicepProvider.loadAllModules();
 const terraformModules: AVMModule[] = await terraformProvider.loadAllModules();
 const allModules: AVMModule[] = [...bicepModules, ...terraformModules];
 
-// Helper function to determine if a module is Terraform
-const isTerraformModule = (module: AVMModule): boolean => {
-    return module.repoURL?.includes('terraform-azurerm') || 
-           module.publicRegistryReference?.includes('registry.terraform.io') ||
-           false;
-};
-
 // Helper function to filter modules by provider
 const filterModulesByProvider = (modules: AVMModule[], provider: 'bicep' | 'terraform' | 'both'): AVMModule[] => {
     if (provider === 'both') return modules;
-    if (provider === 'terraform') return modules.filter(isTerraformModule);
-    return modules.filter(module => !isTerraformModule(module));
+    if (provider === 'terraform') return modules.filter(module => module.providerType === 'terraform');
+    return modules.filter(module => module.providerType === 'bicep');
 };
 
 server.registerResource(
@@ -44,7 +37,7 @@ server.registerResource(
         return {
             contents: allModules.map((module: AVMModule) => ({
                 uri: `resource://get_avm_details/${module.moduleName}`,
-                text: `${module.moduleDisplayName} (${isTerraformModule(module) ? 'Terraform' : 'Bicep'})`
+                text: `${module.moduleDisplayName} (${module.providerType === 'terraform' ? 'Terraform' : 'Bicep'})`
             }))
         };
     }
@@ -107,7 +100,7 @@ server.registerResource(
         }
 
         // Determine the provider type and get the appropriate provider
-        const isterraform = isTerraformModule(module);
+        const isterraform = module.providerType === 'terraform';
         const currentProvider = isterraform ? terraformProvider : bicepProvider;
 
         const avmDetails = {
@@ -175,7 +168,7 @@ server.registerTool(
 
             if (bestMatchModule) {
                 // Determine the provider type and get the appropriate provider
-                const isterraform = isTerraformModule(bestMatchModule);
+                const isterraform = bestMatchModule.providerType === 'terraform';
                 const currentProvider = isterraform ? terraformProvider : bicepProvider;
 
                 const avmDetails = {
@@ -272,7 +265,7 @@ server.registerTool(
 
             if (bestMatchModule) {
                 // Determine the provider type and get the appropriate provider
-                const isterraform = isTerraformModule(bestMatchModule);
+                const isterraform = bestMatchModule.providerType === 'terraform';
                 const currentProvider = isterraform ? terraformProvider : bicepProvider;
 
                 const avmDetails = {
