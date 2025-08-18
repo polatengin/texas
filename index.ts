@@ -135,11 +135,90 @@ ${module.description}
 ## Documentation
 ${module.markdown}`;
 
+            return {
+                contents: [{
+                    uri: `resource://get_avm_details/${module.moduleName}`,
+                    text: detailsText
+                }]
+            };
+        }
+    );
+
+server.registerTool(
+    "get_avm_details",
+    {
+        title: "Get AVM Module Details",
+        description: "Get detailed information about a specific AVM module by name",
+        inputSchema: {
+            moduleName: z.string().describe("The name of the AVM module to get details for"),
+            provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default).")
+        }
+    },
+    async (args: { moduleName: string; provider?: 'bicep' | 'terraform' | 'both' }) => {
+        const providerFilter = args.provider || 'both';
+        const filteredModules = filterModulesByProvider(allModules, providerFilter);
+        
+        const module = filteredModules.find((m: AVMModule) => 
+            m.moduleName === args.moduleName ||
+            m.moduleDisplayName.toLowerCase().includes(args.moduleName.toLowerCase()) ||
+            m.alternativeNames.toLowerCase().includes(args.moduleName.toLowerCase()) ||
+            m.resourceType.toLowerCase().includes(args.moduleName.toLowerCase())
+        );
+
+        if (!module) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `Module not found: ${args.moduleName}`
+                    }
+                ]
+            };
+        }
+
+        // Determine the provider type and get the appropriate provider
+        const isterraform = module.providerType === 'terraform';
+        const currentProvider = isterraform ? terraformProvider : bicepProvider;
+
+        const avmDetails = {
+            resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
+            apiVersion: module.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
+            brEndpoint: module.parsedMarkdown?.brEndpoint || 'Not found',
+            url: currentProvider.getDocumentationUrl(module)
+        };
+
+        const detailsText = `# ${module.moduleDisplayName}
+
+**Provider Namespace:** ${module.providerNamespace}
+**Resource Type:** ${module.resourceType}
+**Module Name:** ${module.moduleName}
+**Status:** ${module.moduleStatus}
+**Alternative Names:** ${module.alternativeNames}
+
+## Module Information
+- **Parent Module:** ${module.parentModule}
+- **Repository URL:** ${module.repoURL}
+- **Registry Reference:** ${module.publicRegistryReference}
+
+## Parsed Details
+- **Resource Type:** ${avmDetails.resourceType || 'Not found'}
+- **API Version:** ${avmDetails.apiVersion || 'Not found'}
+- **BR Endpoint:** ${avmDetails.brEndpoint || 'Not found'}
+- **Documentation URL:** ${avmDetails.url}
+
+## Description
+${module.description}
+
+## Documentation
+${module.markdown}`;
+
         return {
-            contents: [{
-                uri: `resource://get_avm_details/${moduleName}`,
-                text: detailsText
-            }]
+            content: [
+                {
+                    type: "text",
+                    text: detailsText
+                }
+            ]
         };
     }
 );
