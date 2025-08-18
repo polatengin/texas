@@ -10,6 +10,26 @@ export abstract class AbstractAvmProvider {
   protected abstract parseDocumentation(markdownContent: string): ParsedMarkdown;
   public abstract getDocumentationUrl(module: AVMModule): string;
 
+  /**
+   * Transform repository URL to README URL. Override in subclasses for provider-specific logic.
+   */
+  protected getReadmeUrl(repoURL: string): string {
+    // Convert GitHub repo URL to raw content URL for README.md
+    let readmeURL = `${repoURL}/README.md`;
+    if (repoURL.includes('github.com')) {
+      // Convert from https://github.com/owner/repo to https://raw.githubusercontent.com/owner/repo/main/README.md
+      readmeURL = repoURL.replace('github.com', 'raw.githubusercontent.com') + '/main/README.md';
+    }
+    return readmeURL;
+  }
+
+  /**
+   * Fetch additional content like examples or test folders. Override in subclasses as needed.
+   */
+  protected async enhanceModuleWithExtraContent(module: AVMModule, repoURL: string): Promise<AVMModule> {
+    return module;
+  }
+
   protected parseCsvLine(line: string): string[] {
     const result: string[] = [];
     let current = "";
@@ -90,13 +110,18 @@ export abstract class AbstractAvmProvider {
       const modulePromise = (async (): Promise<AVMModule> => {
         let markdownContent = "";
         if (repoURL) {
-          const readmeURL = `${repoURL}/README.md`;
+          const readmeURL = this.getReadmeUrl(repoURL);
           const result = await this.fetchMarkdownWithRetry(readmeURL);
           markdownContent = result.content;
         }
 
         const parsed = markdownContent ? this.parseDocumentation(markdownContent) : undefined;
-        return this.mapRowToModule(values, markdownContent, parsed);
+        let module = this.mapRowToModule(values, markdownContent, parsed);
+        
+        // Allow subclasses to enhance the module with additional content
+        module = await this.enhanceModuleWithExtraContent(module, repoURL);
+        
+        return module;
       })();
 
       modulePromises.push(modulePromise);

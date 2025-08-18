@@ -26,6 +26,8 @@ export interface ParsedMarkdown {
     description?: string;
     code: string;
     language?: string;
+    source?: string;
+    folderName?: string;
   }>;
   resourceTypes: Array<{
     type: string;
@@ -39,6 +41,11 @@ export interface ParsedMarkdown {
   }>;
   usageInstructions?: string;
   brEndpoint?: string;
+  exampleFolders?: Array<{
+    name: string;
+    readmeContent?: string;
+    parsedContent?: ParsedMarkdown;
+  }>;
 }
 
 export interface AVMModule {

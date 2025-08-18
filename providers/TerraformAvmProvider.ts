@@ -221,65 +221,92 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
     return parsed;
   }
 
-  public async loadAllModules(): Promise<AVMModule[]> {
-    const response = await fetch(this.getIndexCsvUrl());
-    const csvData = await response.text();
+  protected async enhanceModuleWithExtraContent(module: AVMModule, repoURL: string): Promise<AVMModule> {
+    if (!repoURL || !module.parsedMarkdown) {
+      return module;
+    }
 
-    const lines = csvData.split('\n').filter(line => line.trim());
-    const modulePromises: Promise<AVMModule>[] = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      const values = this.parseCsvLine(lines[i]);
-
-      if (!this.shouldIncludeRow(values)) continue;
-
-      const repoURL = this.getRepoUrlFromRow(values);
-      const moduleName = this.getModuleNameFromRow(values, i);
-
-      const modulePromise = (async (): Promise<AVMModule> => {
-        let markdownContent = "";
-        if (repoURL) {
-          // Convert GitHub repo URL to raw content URL for README.md
-          let readmeURL = `${repoURL}/README.md`;
-          if (repoURL.includes('github.com')) {
-            // Convert from https://github.com/owner/repo to https://raw.githubusercontent.com/owner/repo/main/README.md
-            readmeURL = repoURL.replace('github.com', 'raw.githubusercontent.com') + '/main/README.md';
+    try {
+      const exampleFolders = await this.fetchExampleFolders(repoURL);
+      if (exampleFolders.length > 0) {
+        module.parsedMarkdown.exampleFolders = exampleFolders;
+        
+        // Add examples from example folders to the main examples array
+        exampleFolders.forEach(folder => {
+          if (folder.parsedContent?.examples) {
+            folder.parsedContent.examples.forEach(example => {
+              module.parsedMarkdown!.examples.push({
+                ...example,
+                source: 'example-folder',
+                folderName: folder.name
+              });
+            });
           }
-          const result = await this.fetchMarkdownWithRetry(readmeURL);
-          markdownContent = result.content;
-        }
-
-        const parsed = markdownContent ? this.parseDocumentation(markdownContent) : undefined;
-        return this.mapRowToModule(values, markdownContent, parsed);
-      })();
-
-      modulePromises.push(modulePromise);
-    }
-
-    // Process promises in batches to avoid overwhelming the server
-    const batchSize = 20;
-    const modules: AVMModule[] = [];
-
-    for (let i = 0; i < modulePromises.length; i += batchSize) {
-      const batch = modulePromises.slice(i, i + batchSize);
-      const batchResults = await Promise.allSettled(batch);
-
-      batchResults.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          modules.push(result.value);
-        } else {
-          // Create a fallback module for failed promises
-          const values = this.parseCsvLine(lines[i + index + 1]);
-          modules.push(this.mapRowToModule(values, '', undefined));
-        }
-      });
-
-      // Add a small delay between batches
-      if (i + batchSize < modulePromises.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        });
       }
+    } catch (error) {
+      console.warn(`Failed to fetch example folders for ${repoURL}:`, error);
     }
 
-    return modules;
+    return module;
+  }
+
+  private async fetchExampleFolders(repoURL: string): Promise<Array<{
+    name: string;
+    readmeContent?: string;
+    parsedContent?: ParsedMarkdown;
+  }>> {
+    if (!repoURL.includes('github.com')) {
+      return [];
+    }
+
+    try {
+      // Extract owner and repo from URL
+      const match = repoURL.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (!match) return [];
+      
+      const [, owner, repo] = match;
+      
+      // Get examples folder contents
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/examples`;
+      const response = await fetch(apiUrl);
+      
+      if (!response.ok) {
+        return [];
+      }
+      
+      const contents = await response.json();
+      const folders = contents.filter((item: any) => item.type === 'dir');
+      
+      // Fetch README from each example folder
+      const folderPromises = folders.map(async (folder: any) => {
+        try {
+          const readmeUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/examples/${folder.name}/README.md`;
+          const readmeResponse = await fetch(readmeUrl);
+          
+          if (readmeResponse.ok) {
+            const readmeContent = await readmeResponse.text();
+            const parsedContent = this.parseDocumentation(readmeContent);
+            
+            return {
+              name: folder.name,
+              readmeContent,
+              parsedContent
+            };
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch README for example folder ${folder.name}:`, error);
+        }
+        
+        return {
+          name: folder.name
+        };
+      });
+      
+      return await Promise.all(folderPromises);
+    } catch (error) {
+      console.warn(`Failed to fetch example folders from ${repoURL}:`, error);
+      return [];
+    }
   }
 } 
