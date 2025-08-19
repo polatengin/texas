@@ -1,5 +1,4 @@
 import type { AVMModule, ParsedMarkdown } from "../types.js";
-import { MODULES_BATCH_SIZE, MODULES_BATCH_DELAY_MS, FETCH_RETRY_MAX, FETCH_RETRY_BACKOFF_BASE_MS } from "../constants.js";
 
 export abstract class AbstractAvmProvider {
   protected abstract getIndexCsvUrl(): string;
@@ -8,23 +7,17 @@ export abstract class AbstractAvmProvider {
   protected abstract getModuleNameFromRow(row: string[], fallbackIndex: number): string;
   protected abstract mapRowToModule(row: string[], markdown: string, parsed?: ParsedMarkdown): AVMModule;
   protected abstract parseDocumentation(markdownContent: string): ParsedMarkdown;
+  
+  /**
+   * Transform repository URL to README URL. Must be implemented by subclasses.
+   */
+  protected abstract getReadmeUrl(repoURL: string): string;
+  
   public abstract getDocumentationUrl(module: AVMModule): string;
 
   /**
-   * Transform repository URL to README URL. Override in subclasses for provider-specific logic.
-   */
-  protected getReadmeUrl(repoURL: string): string {
-    // Convert GitHub repo URL to raw content URL for README.md
-    let readmeURL = `${repoURL}/README.md`;
-    if (repoURL.includes('github.com')) {
-      // Convert from https://github.com/owner/repo to https://raw.githubusercontent.com/owner/repo/main/README.md
-      readmeURL = repoURL.replace('github.com', 'raw.githubusercontent.com') + '/main/README.md';
-    }
-    return readmeURL;
-  }
-
-  /**
-   * Fetch additional content like examples or test folders. Override in subclasses as needed.
+   * Enhanced module loading with extra content. Override in subclasses as needed.
+   * Default implementation returns the module unchanged.
    */
   protected async enhanceModuleWithExtraContent(module: AVMModule, repoURL: string): Promise<AVMModule> {
     return module;
@@ -48,7 +41,7 @@ export abstract class AbstractAvmProvider {
         } else {
           inQuotes = false;
         }
-      } else if (char === ',' && !inQuotes) {
+      } else if (char === "," && !inQuotes) {
         result.push(current.trim());
         current = "";
       } else {
@@ -60,7 +53,11 @@ export abstract class AbstractAvmProvider {
     return result;
   }
 
-  protected async fetchMarkdownWithRetry(url: string, maxRetries: number = FETCH_RETRY_MAX): Promise<{ content: string; status: string }> {
+  protected async fetchMarkdownWithRetry(
+    url: string,
+    moduleName: string,
+    maxRetries = 3
+  ): Promise<{ content: string; status: string }> {
     if (!url) {
       return { content: "", status: "no-url" };
     }
@@ -79,11 +76,11 @@ export abstract class AbstractAvmProvider {
           return { content: "", status: "rate-limited" };
         }
         return { content: "", status: `http-${response.status}` };
-      } catch (_error) {
+      } catch (error) {
         if (attempt === maxRetries) {
           return { content: "", status: "network-error" };
         }
-        await new Promise(resolve => setTimeout(resolve, FETCH_RETRY_BACKOFF_BASE_MS * attempt));
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
     }
     return { content: "", status: "unknown-error" };
@@ -92,10 +89,17 @@ export abstract class AbstractAvmProvider {
   public async loadAllModules(): Promise<AVMModule[]> {
     const response = await fetch(this.getIndexCsvUrl());
     const csvData = await response.text();
-
-    const lines = csvData.split('\n').filter(line => line.trim());
+    const lines = csvData.split("\n").filter((line) => line.trim());
 
     const modulePromises: Promise<AVMModule>[] = [];
+    const fetchStats = {
+      success: 0,
+      notFound: 0,
+      rateLimited: 0,
+      networkError: 0,
+      noUrl: 0,
+      other: 0,
+    };
 
     for (let i = 1; i < lines.length; i++) {
       const values = this.parseCsvLine(lines[i]);
@@ -109,14 +113,38 @@ export abstract class AbstractAvmProvider {
 
       const modulePromise = (async (): Promise<AVMModule> => {
         let markdownContent = "";
+        let fetchStatus = "no-url";
+
         if (repoURL) {
           const readmeURL = this.getReadmeUrl(repoURL);
-          const result = await this.fetchMarkdownWithRetry(readmeURL);
+          const result = await this.fetchMarkdownWithRetry(readmeURL, moduleName);
           markdownContent = result.content;
+          fetchStatus = result.status;
         }
 
-        const parsed = markdownContent ? this.parseDocumentation(markdownContent) : undefined;
-        let module = this.mapRowToModule(values, markdownContent, parsed);
+        switch (fetchStatus) {
+          case "success":
+            fetchStats.success++;
+            break;
+          case "404":
+            fetchStats.notFound++;
+            break;
+          case "rate-limited":
+            fetchStats.rateLimited++;
+            break;
+          case "network-error":
+            fetchStats.networkError++;
+            break;
+          case "no-url":
+            fetchStats.noUrl++;
+            break;
+          default:
+            fetchStats.other++;
+            break;
+        }
+
+        const parsedMarkdown = markdownContent ? this.parseDocumentation(markdownContent) : undefined;
+        let module = this.mapRowToModule(values, markdownContent, parsedMarkdown);
         
         // Allow subclasses to enhance the module with additional content
         module = await this.enhanceModuleWithExtraContent(module, repoURL);
@@ -127,7 +155,7 @@ export abstract class AbstractAvmProvider {
       modulePromises.push(modulePromise);
     }
 
-    const batchSize = MODULES_BATCH_SIZE;
+    const batchSize = 20;
     const modules: AVMModule[] = [];
 
     for (let i = 0; i < modulePromises.length; i += batchSize) {
@@ -139,15 +167,16 @@ export abstract class AbstractAvmProvider {
           modules.push(result.value);
         } else {
           const values = this.parseCsvLine(lines[i + index + 1]);
-          modules.push(this.mapRowToModule(values, ""));
+          modules.push(this.mapRowToModule(values, "", undefined));
         }
       });
 
       if (i + batchSize < modulePromises.length) {
-        await new Promise(resolve => setTimeout(resolve, MODULES_BATCH_DELAY_MS));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
     }
 
+    console.log(`Loaded ${modules.length} modules. Fetch stats:`, fetchStats);
     return modules;
   }
-} 
+}
