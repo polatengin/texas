@@ -1,12 +1,5 @@
 {
   "servers": {
-    "texas": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "@polatengin/texas"
-      ]
-    },
     "local-dev": {
       "type": "stdio",
       "command": "node",

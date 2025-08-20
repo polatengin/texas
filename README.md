@@ -58,6 +58,20 @@ npm install -g @polatengin/texas
 texas
 ```
 
+### Option 1b: Use with npx (No Installation Required)
+
+You can also run the server directly with npx without installing it globally:
+
+```bash
+# Run directly with npx
+npx @polatengin/texas
+```
+
+This is particularly useful for:
+- **MCP Client Integration**: Direct execution in MCP server configurations
+- **CI/CD Pipelines**: Running without permanent installation
+- **Testing**: Trying the latest version without committing to installation
+
 ### Option 2: Run from source
 
 If you want to run from source or contribute to the project:
@@ -108,9 +122,11 @@ The server operates over stdio and is designed to be used by MCP clients. It doe
 
 ## Add AVM MCP Server to VS Code
 
-To use the AVM MCP server with GitHub Copilot in Visual Studio Code:
+To use the AVM MCP server with GitHub Copilot in Visual Studio Code, you need to configure it in your workspace's MCP settings.
 
-### Option 1: Using the npm package (Recommended)
+### Quick Setup with npx (Recommended)
+
+The simplest way to integrate the texas server is using npx, which requires no prior installation:
 
 Create or update `.vscode/mcp.json` in your workspace:
 
@@ -128,7 +144,36 @@ Create or update `.vscode/mcp.json` in your workspace:
 }
 ```
 
-### Option 2: Using local development version
+**Benefits of the npx approach:**
+- ✅ **No installation required** - npx downloads and runs the latest version automatically
+- ✅ **Always up-to-date** - Uses the latest published version from npm
+- ✅ **Zero maintenance** - No need to manually update the package
+- ✅ **Clean environment** - Doesn't clutter your global npm packages
+
+### Alternative Setup Options
+
+#### Option 1: Using globally installed package
+
+If you prefer to install the package globally first:
+
+```bash
+npm install -g @polatengin/texas
+```
+
+Then configure `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "texas": {
+      "type": "stdio",
+      "command": "texas"
+    }
+  }
+}
+```
+
+#### Option 2: Using local development version
 
 If you're running from source, configure `.vscode/mcp.json` as:
 
