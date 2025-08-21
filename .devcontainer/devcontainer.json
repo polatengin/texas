@@ -5,6 +5,7 @@
     "vscode": {
       "extensions": [
         "dbaeumer.vscode-eslint",
+        "EditorConfig.EditorConfig",
         "ms-azuretools.vscode-bicep"
       ]
     }
