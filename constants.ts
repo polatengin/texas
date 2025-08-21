@@ -5,7 +5,7 @@ export const MODULES_BATCH_SIZE = 20;
 export const MODULES_BATCH_DELAY_MS = 100;
 
 export const FETCH_RETRY_MAX = 3;
-export const FETCH_RETRY_BACKOFF_BASE_MS = 1000; // ms
+export const FETCH_RETRY_BACKOFF_BASE_MS = 1000;
 
 // Bicep-specific sources
 export const BICEP_CSV_URL = "https://raw.githubusercontent.com/Azure/Azure-Verified-Modules/refs/heads/main/docs/static/module-indexes/BicepResourceModules.csv";
