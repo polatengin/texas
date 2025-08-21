@@ -7,8 +7,8 @@
     "texas": "dist/index.js"
   },
   "files": [
-    "./dist/index.js",
-    "./README.md"
+    "dist/**",
+    "README.md"
   ],
   "type": "module",
   "repository": {
@@ -35,7 +35,8 @@
   },
   "scripts": {
     "build": "rm -rf dist && npx tsc && chmod +x ./dist/index.js",
-    "start": "npx tsx index.ts"
+    "start": "npx tsx index.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.17.2",
@@ -44,8 +45,10 @@
   },
   "devDependencies": {
     "@types/marked": "6.0.0",
+    "@types/node": "22.7.5",
     "ts-node": "10.9.2",
     "tsx": "4.20.4",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "vitest": "2.1.3"
   }
 }
