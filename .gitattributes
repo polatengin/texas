@@ -1,3 +1,2 @@
 *.ts linguist-language=TypeScript
-# Explicitly force index.ts (has a shebang) to be treated as TypeScript, not JavaScript
 index.ts linguist-language=TypeScript
