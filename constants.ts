@@ -17,4 +17,4 @@ export const TERRAFORM_CSV_URL = "https://raw.githubusercontent.com/Azure/Azure-
 export const TERRAFORM_DOC_PREFERENCE: Array<'registry' | 'repo'> = ['registry', 'repo'];
 
 // Parsing helpers
-export const BR_PUBLIC_PREFIX = "br/public:"; 
+export const BR_PUBLIC_PREFIX = "br/public:";
