@@ -42,13 +42,20 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-      - name: Get current version
-        run: echo "CURRENT_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
-
-      - name: Increment patch version
+      - name: Get current version and increment patch version
         run: |
+          echo "CURRENT_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+
           npm version patch --no-git-tag-version
           echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+
+          tmp_file=$(mktemp)
+          {
+            echo "export const SERVER_VERSION = \"${NEW_VERSION}\";";
+            tail -n +2 constants.ts;
+          } > "${tmp_file}"
+          mv "${tmp_file}" constants.ts
+
           echo "Version updated from ${{ env.CURRENT_VERSION }} to ${{ env.NEW_VERSION }}"
 
       - name: Publish to NPM
@@ -58,7 +65,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add package.json package-lock.json
+          git add package.json package-lock.json constants.ts
           git commit -m "chore: bump version to v${{ env.NEW_VERSION }} [skip ci]"
           git push
 
