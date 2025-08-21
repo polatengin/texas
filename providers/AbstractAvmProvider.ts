@@ -7,12 +7,12 @@ export abstract class AbstractAvmProvider {
   protected abstract getModuleNameFromRow(row: string[], fallbackIndex: number): string;
   protected abstract mapRowToModule(row: string[], markdown: string, parsed?: ParsedMarkdown): AVMModule;
   protected abstract parseDocumentation(markdownContent: string): ParsedMarkdown;
-  
+
   /**
    * Transform repository URL to README URL. Must be implemented by subclasses.
    */
   protected abstract getReadmeUrl(repoURL: string): string;
-  
+
   public abstract getDocumentationUrl(module: AVMModule): string;
 
   /**
@@ -55,7 +55,6 @@ export abstract class AbstractAvmProvider {
 
   protected async fetchMarkdownWithRetry(
     url: string,
-    moduleName: string,
     maxRetries = 3
   ): Promise<{ content: string; status: string }> {
     if (!url) {
@@ -117,7 +116,7 @@ export abstract class AbstractAvmProvider {
 
         if (repoURL) {
           const readmeURL = this.getReadmeUrl(repoURL);
-          const result = await this.fetchMarkdownWithRetry(readmeURL, moduleName);
+          const result = await this.fetchMarkdownWithRetry(readmeURL);
           markdownContent = result.content;
           fetchStatus = result.status;
         }
@@ -145,10 +144,10 @@ export abstract class AbstractAvmProvider {
 
         const parsedMarkdown = markdownContent ? this.parseDocumentation(markdownContent) : undefined;
         let module = this.mapRowToModule(values, markdownContent, parsedMarkdown);
-        
+
         // Allow subclasses to enhance the module with additional content
         module = await this.enhanceModuleWithExtraContent(module, repoURL);
-        
+
         return module;
       })();
 
@@ -176,7 +175,6 @@ export abstract class AbstractAvmProvider {
       }
     }
 
-    console.log(`Loaded ${modules.length} modules. Fetch stats:`, fetchStats);
     return modules;
   }
 }

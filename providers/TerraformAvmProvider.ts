@@ -11,19 +11,18 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
   protected getReadmeUrl(repoURL: string): string {
     // Convert GitHub repo URL to raw content URL for README.md
     if (!repoURL) return '';
-    
+
     if (repoURL.includes('github.com')) {
       // Convert from https://github.com/owner/repo to https://raw.githubusercontent.com/owner/repo/main/README.md
       return repoURL.replace('github.com', 'raw.githubusercontent.com') + '/main/README.md';
     }
-    
+
     // Fallback for non-GitHub URLs
     return `${repoURL}/README.md`;
   }
 
   protected shouldIncludeRow(row: string[]): boolean {
-    const moduleStatus = (row[6] || "").toLowerCase();
-    return moduleStatus !== "proposed";
+    return (row[6] || "").toLowerCase() !== "proposed"; // moduleStatus must not be "proposed"
   }
 
   protected getRepoUrlFromRow(row: string[]): string {
@@ -78,21 +77,18 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
       outputs: []
     };
 
-    // Parse markdown using marked and extract tokens
     const tokens = marked.lexer(markdownContent);
-    
+
     let currentSection: any = null;
     let currentSectionContent = '';
-    
+
     for (const token of tokens) {
       if (token.type === 'heading') {
-        // Save previous section if exists
         if (currentSection) {
           currentSection.content = currentSectionContent.trim();
           parsed.sections.push(currentSection);
         }
-        
-        // Start new section
+
         currentSection = {
           title: token.text,
           level: token.depth,
@@ -100,20 +96,17 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
           anchor: token.text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
         };
         currentSectionContent = '';
-        
-        // Extract main title and description
+
         if (token.depth === 1 && !parsed.title) {
           parsed.title = token.text;
         }
       } else if (token.type === 'code') {
-        // Extract code blocks
         parsed.codeBlocks.push({
           language: token.lang || undefined,
           code: token.text,
           context: currentSection?.title
         });
-        
-        // Check if it's an example - Terraform uses HCL/Terraform language
+
         if (currentSection && (
           currentSection.title.toLowerCase().includes('example') ||
           currentSection.title.toLowerCase().includes('usage') ||
@@ -127,31 +120,28 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
             language: token.lang || undefined
           });
         } else if (token.lang === 'hcl' || token.lang === 'terraform') {
-          // Also consider any HCL/Terraform code block as potential example
           parsed.examples.push({
             title: currentSection?.title || 'Code Example',
             code: token.text,
             language: token.lang
           });
         }
-        
+
         currentSectionContent += `\`\`\`${token.lang || ''}\n${token.text}\n\`\`\`\n\n`;
       } else if (token.type === 'paragraph') {
         const text = token.text || '';
         currentSectionContent += text + '\n\n';
-        
-        // Extract description from first paragraph if not set
+
         if (!parsed.description && currentSection?.level === 1) {
           parsed.description = text.substring(0, 200) + (text.length > 200 ? '...' : '');
         }
-        
-        // Extract Terraform registry reference
+
         const registryPatterns = [
           /registry\.terraform\.io\/modules\/([^\s\n\r<>`]+)/,
           /module\s+"([^"]+)"/,
           /source\s*=\s*"([^"]+)"/
         ];
-        
+
         for (const pattern of registryPatterns) {
           const match = text.match(pattern);
           if (match && !parsed.brEndpoint) {
@@ -160,27 +150,25 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
           }
         }
       } else if (token.type === 'table') {
-        // Parse tables for parameters, outputs, etc.
-        const headers = (token as any).header?.map((h: any) => 
+        const headers = (token as any).header?.map((h: any) =>
           (typeof h === 'string' ? h : h.text || '').toLowerCase()
         ) || [];
-        
+
         const rows = (token as any).rows || [];
-        
+
         for (const row of rows) {
           const rowData: Record<string, string> = {};
           headers.forEach((header: string, index: number) => {
             const cell = row[index];
             rowData[header] = typeof cell === 'string' ? cell : (cell?.text || '');
           });
-          
-          // Check if this is a variables/inputs table (Terraform uses different naming)
-          if (currentSection?.title.toLowerCase().includes('input') || 
-              currentSection?.title.toLowerCase().includes('variable') ||
-              headers.includes('variable') || 
-              headers.includes('name')) {
-            if (currentSection?.title.toLowerCase().includes('input') || 
-                currentSection?.title.toLowerCase().includes('variable')) {
+
+          if (currentSection?.title.toLowerCase().includes('input') ||
+            currentSection?.title.toLowerCase().includes('variable') ||
+            headers.includes('variable') ||
+            headers.includes('name')) {
+            if (currentSection?.title.toLowerCase().includes('input') ||
+              currentSection?.title.toLowerCase().includes('variable')) {
               parsed.parameters.push({
                 name: rowData.variable || rowData.name || '',
                 type: rowData.type || undefined,
@@ -190,20 +178,18 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
               });
             }
           }
-          
-          // Check if this is a resources table
-          if (headers.includes('resource') || 
-              (currentSection?.title.toLowerCase().includes('resource') && headers.includes('type'))) {
+
+          if (headers.includes('resource') ||
+            (currentSection?.title.toLowerCase().includes('resource') && headers.includes('type'))) {
             parsed.resourceTypes.push({
               type: rowData.resource || rowData.type || '',
               apiVersion: rowData['api version'] || undefined,
               reference: rowData.reference || rowData.link || undefined
             });
           }
-          
-          // Check if this is an outputs table
-          if (headers.includes('output') || 
-              (currentSection?.title.toLowerCase().includes('output') && headers.includes('name'))) {
+
+          if (headers.includes('output') ||
+            (currentSection?.title.toLowerCase().includes('output') && headers.includes('name'))) {
             parsed.outputs.push({
               name: rowData.output || rowData.name || '',
               type: rowData.type || undefined,
@@ -211,10 +197,9 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
             });
           }
         }
-        
+
         currentSectionContent += `[Table with ${rows.length} rows]\n\n`;
       } else if (token.type === 'list') {
-        // Handle lists
         const items = (token as any).items || [];
         const listContent = items.map((item: any) => {
           if (typeof item === 'string') return `- ${item}`;
@@ -224,10 +209,9 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
           }
           return '';
         }).join('\n');
-        
+
         currentSectionContent += listContent + '\n\n';
-        
-        // Extract resource types from lists if in resources section
+
         if (currentSection?.title.toLowerCase().includes('resource')) {
           const resourceMatches = listContent.match(/azurerm_[a-z_]+/g);
           if (resourceMatches) {
@@ -239,32 +223,28 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
           }
         }
       } else if (token.type === 'text' || token.type === 'space' || token.type === 'hr') {
-        // Handle other content types
         if ('text' in token) {
           currentSectionContent += (token.text || '') + '\n\n';
         }
       }
     }
-    
-    // Don't forget the last section
+
     if (currentSection) {
       currentSection.content = currentSectionContent.trim();
       parsed.sections.push(currentSection);
     }
-    
-    // Extract usage instructions from specific sections
-    const usageSection = parsed.sections.find(s => 
-      s.title.toLowerCase().includes('usage') || 
+
+    const usageSection = parsed.sections.find(s =>
+      s.title.toLowerCase().includes('usage') ||
       s.title.toLowerCase().includes('example') ||
       s.title.toLowerCase().includes('getting started') ||
       s.title.toLowerCase().includes('quick start')
     );
-    
+
     if (usageSection) {
       parsed.usageInstructions = usageSection.content;
     }
-    
-    // If no registry reference found, check code blocks for module source
+
     if (!parsed.brEndpoint) {
       for (const codeBlock of parsed.codeBlocks) {
         if (codeBlock.language === 'hcl' || codeBlock.language === 'terraform' || !codeBlock.language) {
@@ -276,7 +256,7 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
         }
       }
     }
-    
+
     return parsed;
   }
 
@@ -289,13 +269,11 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
     }
 
     try {
-      // Extract owner and repo from GitHub URL
       const match = repoURL.match(/github\.com\/([^\/]+)\/([^\/]+)/);
       if (!match) return module;
 
       const [, owner, repo] = match;
-      
-      // Fetch examples folder structure from GitHub API
+
       const examplesUrl = `https://api.github.com/repos/${owner}/${repo}/contents/examples`;
       const response = await fetch(examplesUrl, {
         headers: {
@@ -307,8 +285,7 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
       if (!response.ok) return module;
 
       const folders = await response.json();
-      
-      // Only process directories
+
       const exampleFolders = folders
         .filter((item: any) => item.type === 'dir')
         .map((folder: any) => ({
@@ -317,29 +294,25 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
           readmeUrl: `https://raw.githubusercontent.com/${owner}/${repo}/main/${folder.path}/README.md`
         }));
 
-      // Fetch README for each example folder
       for (const folder of exampleFolders) {
         try {
           const readmeResponse = await fetch(folder.readmeUrl);
           if (readmeResponse.ok) {
             const readmeContent = await readmeResponse.text();
             const parsedExample = this.parseDocumentation(readmeContent);
-            
-            // Add to module examples with folder context
+
             if (parsedExample.examples.length > 0 || parsedExample.codeBlocks.length > 0) {
               if (!module.parsedMarkdown) {
                 module.parsedMarkdown = this.parseDocumentation('');
               }
-              
-              // Add examples with folder name prefix
+
               parsedExample.examples.forEach(example => {
                 module.parsedMarkdown!.examples.push({
                   ...example,
                   title: `${folder.name}: ${example.title || 'Example'}`
                 });
               });
-              
-              // Add code blocks if no explicit examples
+
               if (parsedExample.examples.length === 0 && parsedExample.codeBlocks.length > 0) {
                 parsedExample.codeBlocks.forEach(block => {
                   if (block.language === 'hcl' || block.language === 'terraform') {
@@ -354,12 +327,10 @@ export class TerraformAvmProvider extends AbstractAvmProvider {
             }
           }
         } catch (err) {
-          // Continue with other folders if one fails
           continue;
         }
       }
     } catch (error) {
-      // Return module unchanged if enhancement fails
       console.error(`Failed to enhance module ${module.moduleName}:`, error);
     }
 

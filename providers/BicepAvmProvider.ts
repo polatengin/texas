@@ -15,8 +15,7 @@ export class BicepAvmProvider extends AbstractAvmProvider {
   }
 
   protected shouldIncludeRow(row: string[]): boolean {
-    const moduleStatus = (row[6] || "").toLowerCase();
-    return moduleStatus !== "proposed";
+    return (row[6] || "").toLowerCase() !== "proposed"; // moduleStatus must not be "proposed"
   }
 
   protected getRepoUrlFromRow(row: string[]): string {
@@ -70,21 +69,18 @@ export class BicepAvmProvider extends AbstractAvmProvider {
       outputs: []
     };
 
-    // Parse markdown using marked and extract tokens
     const tokens = marked.lexer(markdownContent);
-    
+
     let currentSection: any = null;
     let currentSectionContent = '';
-    
+
     for (const token of tokens) {
       if (token.type === 'heading') {
-        // Save previous section if exists
         if (currentSection) {
           currentSection.content = currentSectionContent.trim();
           parsed.sections.push(currentSection);
         }
-        
-        // Start new section
+
         currentSection = {
           title: token.text,
           level: token.depth,
@@ -92,20 +88,17 @@ export class BicepAvmProvider extends AbstractAvmProvider {
           anchor: token.text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
         };
         currentSectionContent = '';
-        
-        // Extract main title and description
+
         if (token.depth === 1 && !parsed.title) {
           parsed.title = token.text;
         }
       } else if (token.type === 'code') {
-        // Extract code blocks (without source property)
         parsed.codeBlocks.push({
           language: token.lang || undefined,
           code: token.text,
           context: currentSection?.title
         });
-        
-        // Check if it's an example
+
         if (currentSection && (
           currentSection.title.toLowerCase().includes('example') ||
           currentSection.title.toLowerCase().includes('usage') ||
@@ -116,27 +109,24 @@ export class BicepAvmProvider extends AbstractAvmProvider {
             title: currentSection.title,
             code: token.text,
             language: token.lang || undefined
-            // Removed source property as it's not in the type definition
           });
         }
-        
+
         currentSectionContent += `\`\`\`${token.lang || ''}\n${token.text}\n\`\`\`\n\n`;
       } else if (token.type === 'paragraph') {
         const text = token.text || '';
         currentSectionContent += text + '\n\n';
-        
-        // Extract description from first paragraph if not set
+
         if (!parsed.description && currentSection?.level === 1) {
           parsed.description = text.substring(0, 200) + (text.length > 200 ? '...' : '');
         }
-        
-        // Extract BR endpoint - look for various patterns
+
         const brPatterns = [
           /br\/public:([^\s\n\r<>`]+)/,
           /br:([^\s\n\r<>`]+)/,
           /mcr\.microsoft\.com\/bicep\/([^\s\n\r<>`]+)/
         ];
-        
+
         for (const pattern of brPatterns) {
           const brMatch = text.match(pattern);
           if (brMatch && !parsed.brEndpoint) {
@@ -151,23 +141,21 @@ export class BicepAvmProvider extends AbstractAvmProvider {
           }
         }
       } else if (token.type === 'table') {
-        // Parse tables for parameters, outputs, etc.
-        const headers = (token as any).header?.map((h: any) => 
+        const headers = (token as any).header?.map((h: any) =>
           (typeof h === 'string' ? h : h.text || '').toLowerCase()
         ) || [];
-        
+
         const rows = (token as any).rows || [];
-        
+
         for (const row of rows) {
           const rowData: Record<string, string> = {};
           headers.forEach((header: string, index: number) => {
             const cell = row[index];
             rowData[header] = typeof cell === 'string' ? cell : (cell?.text || '');
           });
-          
-          // Check if this is a parameters table
-          if (currentSection?.title.toLowerCase().includes('parameter') || 
-              headers.includes('parameter') || 
+
+          if (currentSection?.title.toLowerCase().includes('parameter') ||
+              headers.includes('parameter') ||
               headers.includes('name')) {
             if (currentSection?.title.toLowerCase().includes('parameter')) {
               parsed.parameters.push({
@@ -179,9 +167,8 @@ export class BicepAvmProvider extends AbstractAvmProvider {
               });
             }
           }
-          
-          // Check if this is a resource types table
-          if (headers.includes('resource type') || 
+
+          if (headers.includes('resource type') ||
               (currentSection?.title.toLowerCase().includes('resource') && headers.includes('type'))) {
             parsed.resourceTypes.push({
               type: rowData['resource type'] || rowData.type || '',
@@ -189,9 +176,8 @@ export class BicepAvmProvider extends AbstractAvmProvider {
               reference: rowData.references || rowData.reference || undefined
             });
           }
-          
-          // Check if this is an outputs table
-          if (headers.includes('output') || 
+
+          if (headers.includes('output') ||
               (currentSection?.title.toLowerCase().includes('output') && headers.includes('name'))) {
             parsed.outputs.push({
               name: rowData.output || rowData.name || '',
@@ -200,10 +186,9 @@ export class BicepAvmProvider extends AbstractAvmProvider {
             });
           }
         }
-        
+
         currentSectionContent += `[Table with ${rows.length} rows]\n\n`;
       } else if (token.type === 'list') {
-        // Handle lists
         const items = (token as any).items || [];
         const listContent = items.map((item: any) => {
           if (typeof item === 'string') return `- ${item}`;
@@ -213,35 +198,31 @@ export class BicepAvmProvider extends AbstractAvmProvider {
           }
           return '';
         }).join('\n');
-        
+
         currentSectionContent += listContent + '\n\n';
       } else if (token.type === 'text' || token.type === 'space' || token.type === 'hr') {
-        // Handle other content types
         if ('text' in token) {
           currentSectionContent += (token.text || '') + '\n\n';
         }
       }
     }
-    
-    // Don't forget the last section
+
     if (currentSection) {
       currentSection.content = currentSectionContent.trim();
       parsed.sections.push(currentSection);
     }
-    
-    // Extract usage instructions from specific sections
-    const usageSection = parsed.sections.find(s => 
-      s.title.toLowerCase().includes('usage') || 
+
+    const usageSection = parsed.sections.find(s =>
+      s.title.toLowerCase().includes('usage') ||
       s.title.toLowerCase().includes('deployment') ||
       s.title.toLowerCase().includes('quick start') ||
       s.title.toLowerCase().includes('example')
     );
-    
+
     if (usageSection) {
       parsed.usageInstructions = usageSection.content;
     }
-    
-    // If no BR endpoint found in text, check code blocks for module references
+
     if (!parsed.brEndpoint) {
       for (const codeBlock of parsed.codeBlocks) {
         if (codeBlock.language === 'bicep' || !codeBlock.language) {
@@ -253,7 +234,7 @@ export class BicepAvmProvider extends AbstractAvmProvider {
         }
       }
     }
-    
+
     return parsed;
   }
 }
