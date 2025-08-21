@@ -26,8 +26,8 @@ const filterModulesByProvider = (modules: AVMModule[], provider: 'bicep' | 'terr
 };
 
 server.registerResource(
-  "list_avms",
-  "resource://list_avms",
+  "list_avm_modules",
+  "resource://list_avm_modules",
   {
     title: "List All AVM Modules",
     description: "List all Bicep and Terraform AVM Modules that have documentation"
@@ -35,7 +35,7 @@ server.registerResource(
   async () => {
     return {
       contents: allModules.map((module: AVMModule) => ({
-        uri: `resource://get_avm_details/${module.moduleName}`,
+        uri: `resource://get_avm_module_details/${module.moduleName}`,
         text: `${module.moduleDisplayName} (${module.providerType === 'terraform' ? 'Terraform' : 'Bicep'})`
       }))
     };
@@ -43,8 +43,8 @@ server.registerResource(
 );
 
 server.registerResource(
-  "list_bicep_avms",
-  "resource://list_bicep_avms",
+  "list_bicep_avm_modules",
+  "resource://list_bicep_avm_modules",
   {
     title: "List Bicep AVM Modules",
     description: "List only Bicep AVM Modules that have documentation"
@@ -53,7 +53,7 @@ server.registerResource(
     const bicepOnly = filterModulesByProvider(allModules, 'bicep');
     return {
       contents: bicepOnly.map((module: AVMModule) => ({
-        uri: `resource://get_avm_details/${module.moduleName}`,
+        uri: `resource://get_avm_module_details/${module.moduleName}`,
         text: module.moduleDisplayName
       }))
     };
@@ -61,8 +61,8 @@ server.registerResource(
 );
 
 server.registerResource(
-  "list_terraform_avms",
-  "resource://list_terraform_avms",
+  "list_terraform_avm_modules",
+  "resource://list_terraform_avm_modules",
   {
     title: "List Terraform AVM Modules",
     description: "List only Terraform AVM Modules that have documentation"
@@ -71,7 +71,7 @@ server.registerResource(
     const terraformOnly = filterModulesByProvider(allModules, 'terraform');
     return {
       contents: terraformOnly.map((module: AVMModule) => ({
-        uri: `resource://get_avm_details/${module.moduleName}`,
+        uri: `resource://get_avm_module_details/${module.moduleName}`,
         text: module.moduleDisplayName
       }))
     };
@@ -79,28 +79,26 @@ server.registerResource(
 );
 
 server.registerResource(
-  "get_avm_details",
-  new ResourceTemplate("resource://get_avm_details/{moduleName}", { list: undefined }),
+  "get_avm_module_details",
+  new ResourceTemplate("resource://get_avm_module_details/{moduleName}", { list: undefined }),
   {
     title: "Get AVM Module Details",
     description: "Get detailed information about a specific AVM module",
   },
-  async (_ctx, variables) => {
+  async (_, variables) => {
     const moduleName = variables.moduleName;
     const module = allModules.find((m: AVMModule) => m.moduleName === moduleName);
 
     if (!module) {
       return {
         contents: [{
-          uri: `resource://get_avm_details/${moduleName}`,
+          uri: `resource://get_avm_module_details/${moduleName}`,
           text: `Module not found: ${moduleName}`
         }]
       };
     }
 
-    // Determine the provider type and get the appropriate provider
-    const isterraform = module.providerType === 'terraform';
-    const currentProvider = isterraform ? terraformProvider : bicepProvider;
+    const currentProvider = module.providerType === 'terraform' ? terraformProvider : bicepProvider;
 
     const avmDetails = {
       resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
@@ -111,32 +109,32 @@ server.registerResource(
 
     const detailsText = `# ${module.moduleDisplayName}
 
-**Provider Namespace:** ${module.providerNamespace}
-**Resource Type:** ${module.resourceType}
-**Module Name:** ${module.moduleName}
-**Status:** ${module.moduleStatus}
-**Alternative Names:** ${module.alternativeNames}
+      **Provider Namespace:** ${module.providerNamespace}
+      **Resource Type:** ${module.resourceType}
+      **Module Name:** ${module.moduleName}
+      **Status:** ${module.moduleStatus}
+      **Alternative Names:** ${module.alternativeNames}
 
-## Module Information
-- **Parent Module:** ${module.parentModule}
-- **Repository URL:** ${module.repoURL}
-- **Registry Reference:** ${module.publicRegistryReference}
+      ## Module Information
+      - **Parent Module:** ${module.parentModule}
+      - **Repository URL:** ${module.repoURL}
+      - **Registry Reference:** ${module.publicRegistryReference}
 
-## Parsed Details
-- **Resource Type:** ${avmDetails.resourceType || 'Not found'}
-- **API Version:** ${avmDetails.apiVersion || 'Not found'}
-- **BR Endpoint:** ${avmDetails.brEndpoint || 'Not found'}
-- **Documentation URL:** ${avmDetails.url}
+      ## Parsed Details
+      - **Resource Type:** ${avmDetails.resourceType || 'Not found'}
+      - **API Version:** ${avmDetails.apiVersion || 'Not found'}
+      - **BR Endpoint:** ${avmDetails.brEndpoint || 'Not found'}
+      - **Documentation URL:** ${avmDetails.url}
 
-## Description
-${module.description}
+      ## Description
+      ${module.description}
 
-## Documentation
-${module.markdown}`;
+      ## Documentation
+      ${module.markdown}`;
 
     return {
       contents: [{
-        uri: `resource://get_avm_details/${module.moduleName}`,
+        uri: `resource://get_avm_module_details/${module.moduleName}`,
         text: detailsText
       }]
     };
@@ -144,7 +142,7 @@ ${module.markdown}`;
 );
 
 server.registerTool(
-  "get_avm_details",
+  "get_avm_module_details",
   {
     title: "Get AVM Module Details",
     description: "Get detailed information about a specific AVM module by name",
@@ -222,7 +220,7 @@ ${module.markdown}`;
 );
 
 server.registerTool(
-  "mcp_find_avms",
+  "mcp_find_avm_modules",
   {
     title: "Find AVM Modules",
     description: "Find AVM modules based on resource types with optional provider filtering",
