@@ -15,6 +15,3 @@ export const BICEP_DOCS_BASE_URL = "https://github.com/Azure/bicep-registry-modu
 export const TERRAFORM_CSV_URL = "https://raw.githubusercontent.com/Azure/Azure-Verified-Modules/refs/heads/main/docs/static/module-indexes/TerraformResourceModules.csv";
 // Prefer Terraform registry doc page when available; else fallback to repo README
 export const TERRAFORM_DOC_PREFERENCE: Array<'registry' | 'repo'> = ['registry', 'repo'];
-
-// Parsing helpers
-export const BR_PUBLIC_PREFIX = "br/public:";
