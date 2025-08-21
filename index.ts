@@ -283,14 +283,14 @@ server.registerTool(
 );
 
 server.registerTool(
-  "generate_architecture",
+  "generate_module",
   {
-    title: "Generate Architecture",
-    description: "Generate a high-level architecture diagram based on the selected Azure resources with optional provider filtering.",
+    title: "Generate Module",
+    description: "Generate the files for the module based on the selected Azure resources with optional provider filtering.",
     inputSchema: {
-      resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVMs."),
+      resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVM modules."),
       provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default)."),
-      extra_context: z.string().optional().describe("Extra high-level architecture context provided by the user.")
+      extra_context: z.string().optional().describe("Extra high-level module context provided by the user.")
     },
   },
   async (params: { resources: string[]; provider?: 'bicep' | 'terraform' | 'both'; extra_context?: string }) => {
