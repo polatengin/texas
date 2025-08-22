@@ -1,4 +1,4 @@
-export const SERVER_VERSION = "0.0.0";
+export const SERVER_VERSION = "";
 export const SERVER_NAME = "AVM MCP Server (Bicep & Terraform)";
 
 export const MODULES_BATCH_SIZE = 20;
