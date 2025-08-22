@@ -131,12 +131,13 @@ server.registerTool(
     description: "Find AVM modules based on resource types with optional provider filtering",
     inputSchema: {
       resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app')."),
-      provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default).")
+      provider: z.enum(['bicep', 'terraform']).optional().default('bicep').describe("Filter by provider type: 'terraform' or 'bicep' (default)")
     }
   },
-  async (args: { resources: string[]; provider?: 'bicep' | 'terraform' | 'both' }) => {
-    const providerFilter = args.provider || 'both';
-    const filteredModules = filterModulesByProvider(allModules, providerFilter);
+  async (args: { resources: string[]; provider?: 'bicep' | 'terraform' }) => {
+    const isTerraform = args.provider === 'terraform';
+    const provider = isTerraform ? terraformProvider : bicepProvider;
+    const filteredModules = await provider.loadAllModules();
 
     const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; provider_type: string; found: boolean }> = {};
     for (const requestedResource of args.resources) {
@@ -147,14 +148,11 @@ server.registerTool(
       );
 
       if (bestMatchModule) {
-        const isTerraform = bestMatchModule.providerType === 'terraform';
-        const currentProvider = isTerraform ? terraformProvider : bicepProvider;
-
         const avmDetails = {
           resourceType: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.type || bestMatchModule.resourceType || 'Not found',
           apiVersion: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
           brEndpoint: bestMatchModule.parsedMarkdown?.brEndpoint || 'Not found',
-          url: currentProvider.getDocumentationUrl(bestMatchModule)
+          url: provider.getDocumentationUrl(bestMatchModule)
         };
 
         result[requestedResource] = {
