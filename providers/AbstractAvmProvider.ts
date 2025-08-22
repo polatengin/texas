@@ -177,4 +177,47 @@ export abstract class AbstractAvmProvider {
 
     return modules;
   }
+
+  public async getModuleByName(name: string): Promise<AVMModule | undefined> {
+    if (!name) return undefined;
+    const target = name.toLowerCase();
+
+    try {
+      const response = await fetch(this.getIndexCsvUrl());
+      const csvData = await response.text();
+      const lines = csvData.split("\n").filter((line) => line.trim());
+      if (lines.length <= 1) return undefined;
+
+      for (let i = 1; i < lines.length; i++) {
+        const values = this.parseCsvLine(lines[i]);
+        if (!this.shouldIncludeRow(values)) continue;
+
+        const moduleName = (values[4] || '').toLowerCase();
+        const displayName = (values[2] || '').toLowerCase();
+        const alternativeNames = (values[3] || '')
+          .split(/[,;]/)
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+
+        const isMatch = moduleName === target || displayName === target || alternativeNames.includes(target);
+        if (!isMatch) continue;
+
+        const repoURL = this.getRepoUrlFromRow(values);
+        let markdownContent = '';
+        if (repoURL) {
+          const readmeURL = this.getReadmeUrl(repoURL);
+            const result = await this.fetchMarkdownWithRetry(readmeURL);
+            markdownContent = result.status === 'success' ? result.content : '';
+        }
+
+        const parsedMarkdown = markdownContent ? this.parseDocumentation(markdownContent) : undefined;
+        let module = this.mapRowToModule(values, markdownContent, parsedMarkdown);
+        module = await this.enhanceModuleWithExtraContent(module, repoURL);
+        return module;
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
 }
