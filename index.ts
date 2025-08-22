@@ -26,53 +26,34 @@ const filterModulesByProvider = (modules: AVMModule[], provider: 'bicep' | 'terr
 };
 
 server.registerResource(
-  "list_avm_modules",
-  "resource://list_avm_modules",
+  "list_avm_bicep_modules",
+  "resource://list_avm_bicep_modules",
   {
-    title: "List All AVM Modules",
-    description: "List all Bicep and Terraform AVM Modules that have documentation"
+    title: "List All Bicep AVM Modules",
+    description: "List all Bicep AVM Modules that have documentation",
   },
   async () => {
     return {
-      contents: allModules.map((module: AVMModule) => ({
-        uri: `resource://get_avm_module_details/${module.moduleName}`,
-        text: `${module.moduleDisplayName} (${module.providerType === 'terraform' ? 'Terraform' : 'Bicep'})`
+      contents: (await bicepProvider.loadAllModules()).map((module: AVMModule) => ({
+        uri: `resource://get_avm_module_details/bicep/${module.moduleName}`,
+        text: `${module.moduleDisplayName} (Bicep)`
       }))
     };
   }
 );
 
 server.registerResource(
-  "list_bicep_avm_modules",
-  "resource://list_bicep_avm_modules",
+  "list_avm_terraform_modules",
+  "resource://list_avm_terraform_modules",
   {
-    title: "List Bicep AVM Modules",
-    description: "List only Bicep AVM Modules that have documentation"
+    title: "List All Terraform AVM Modules",
+    description: "List all Terraform AVM Modules that have documentation",
   },
   async () => {
-    const bicepOnly = filterModulesByProvider(allModules, 'bicep');
     return {
-      contents: bicepOnly.map((module: AVMModule) => ({
-        uri: `resource://get_avm_module_details/${module.moduleName}`,
-        text: module.moduleDisplayName
-      }))
-    };
-  }
-);
-
-server.registerResource(
-  "list_terraform_avm_modules",
-  "resource://list_terraform_avm_modules",
-  {
-    title: "List Terraform AVM Modules",
-    description: "List only Terraform AVM Modules that have documentation"
-  },
-  async () => {
-    const terraformOnly = filterModulesByProvider(allModules, 'terraform');
-    return {
-      contents: terraformOnly.map((module: AVMModule) => ({
-        uri: `resource://get_avm_module_details/${module.moduleName}`,
-        text: module.moduleDisplayName
+      contents: (await terraformProvider.loadAllModules()).map((module: AVMModule) => ({
+        uri: `resource://get_avm_module_details/terraform/${module.moduleName}`,
+        text: `${module.moduleDisplayName} (Terraform)`
       }))
     };
   }
@@ -80,31 +61,33 @@ server.registerResource(
 
 server.registerResource(
   "get_avm_module_details",
-  new ResourceTemplate("resource://get_avm_module_details/{moduleName}", { list: undefined }),
+  new ResourceTemplate("resource://get_avm_module_details/{providerName}/{moduleName}", { list: undefined }),
   {
     title: "Get AVM Module Details",
     description: "Get detailed information about a specific AVM module",
   },
   async (_, variables) => {
-    const moduleName = variables.moduleName;
-    const module = allModules.find((m: AVMModule) => m.moduleName === moduleName);
+    const moduleName = Array.isArray(variables.moduleName) ? variables.moduleName[0] : (variables.moduleName || '');
+    const providerName = Array.isArray(variables.providerName) ? variables.providerName[0] : (variables.providerName || '');
+
+    const provider = providerName === 'terraform' ? terraformProvider : bicepProvider;
+
+    const module = await provider.getModuleByName(moduleName);
 
     if (!module) {
       return {
         contents: [{
-          uri: `resource://get_avm_module_details/${moduleName}`,
+          uri: `resource://get_avm_module_details/${providerName}/${moduleName}`,
           text: `Module not found: ${moduleName}`
         }]
       };
     }
 
-    const currentProvider = module.providerType === 'terraform' ? terraformProvider : bicepProvider;
-
     const avmDetails = {
       resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
       apiVersion: module.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
       brEndpoint: module.parsedMarkdown?.brEndpoint || 'Not found',
-      url: currentProvider.getDocumentationUrl(module)
+      url: provider.getDocumentationUrl(module)
     };
 
     const detailsText = `# ${module.moduleDisplayName}
