@@ -15,15 +15,6 @@ const server = new McpServer({
 
 const bicepProvider = new BicepAvmProvider();
 const terraformProvider = new TerraformAvmProvider();
-const bicepModules: AVMModule[] = await bicepProvider.loadAllModules();
-const terraformModules: AVMModule[] = await terraformProvider.loadAllModules();
-const allModules: AVMModule[] = [...bicepModules, ...terraformModules];
-
-const filterModulesByProvider = (modules: AVMModule[], provider: 'bicep' | 'terraform' | 'both'): AVMModule[] => {
-  if (provider === 'both') return modules;
-  if (provider === 'terraform') return modules.filter(module => module.providerType === 'terraform');
-  return modules.filter(module => module.providerType === 'bicep');
-};
 
 server.registerResource(
   "list_avm_bicep_modules",
@@ -265,19 +256,19 @@ server.registerTool(
   "generate_modules",
   {
     title: "Generate Modules",
-    description: "Generate the files for the modules based on the selected Azure resources with optional provider filtering.",
+    description: "Generate the bicep or terraform files that use AVM modules for the selected Azure resources.",
     inputSchema: {
       resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVM modules."),
-      provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default)."),
+      provider: z.enum(['bicep', 'terraform']).optional().default('bicep').describe("Filter by provider type: 'terraform' or 'bicep' (default)."),
       extra_context: z.string().optional().describe("Extra high-level module context provided by the user.")
     },
   },
-  async (params: { resources: string[]; provider?: 'bicep' | 'terraform' | 'both'; extra_context?: string }) => {
-    const resourcesToInclude: string[] = params.resources || [];
-    const providerFilter = params.provider || 'both';
+  async (params: { resources: string[]; provider?: 'bicep' | 'terraform'; extra_context?: string }) => {
+    const isTerraform = params.provider === 'terraform';
+    const provider = isTerraform ? terraformProvider : bicepProvider;
     const extraContext = params.extra_context || 'No extra context supplied.';
 
-    if (resourcesToInclude.length === 0) {
+    if (params.resources.length === 0) {
       return {
         content: [
           {
@@ -288,17 +279,16 @@ server.registerTool(
       };
     }
 
-    const filteredModules = filterModulesByProvider(allModules, providerFilter);
-    const providerTypeText = providerFilter === 'both' ? 'Bicep or Terraform' :
-      providerFilter === 'terraform' ? 'Terraform' : 'Bicep';
+    const filteredModules = await provider.loadAllModules();
+    const providerName = isTerraform ? 'Terraform' : 'Bicep';
 
     let infoPayload = `
 /**
  * Information collected by AVM MCP Server for architecture generation.
  *
- * Use the following documentation to build the ${providerTypeText} architecture.
+ * Use the following documentation to build the ${providerName} architecture.
  * Pay close attention to module paths, parameters, and examples.
- * Provider filter: ${providerFilter}
+ * Provider filter: ${providerName}
  * Each module is marked with its provider type (Bicep or Terraform).
  *
  * Desired high-level architecture context:
@@ -309,7 +299,7 @@ server.registerTool(
     const collectedDocs: string[] = [];
     const avmNotFound: string[] = [];
 
-    for (const resourceType of resourcesToInclude) {
+    for (const resourceType of params.resources) {
       const bestMatchModule = filteredModules.find((module: AVMModule) =>
         module.moduleDisplayName.toLowerCase().includes(resourceType.toLowerCase()) ||
         module.alternativeNames.toLowerCase().includes(resourceType.toLowerCase()) ||
@@ -327,14 +317,13 @@ server.registerTool(
           url: currentProvider.getDocumentationUrl(bestMatchModule)
         };
 
-        const providerType = isTerraform ? 'Terraform' : 'Bicep';
         const registryEndpoint = isTerraform ?
           `**Terraform Registry:** \`${bestMatchModule.publicRegistryReference}\`` :
           `**Bicep Registry (BR Endpoint):** \`${avmDetails.brEndpoint}\``;
 
         collectedDocs.push(
-          `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchModule.moduleDisplayName}) - ${providerType}\n` +
-          `**Provider Type:** \`${providerType}\`\n` +
+          `### AVM Documentation for: ${resourceType} (Matched to: ${bestMatchModule.moduleDisplayName}) - ${providerName}\n` +
+          `**Provider Type:** \`${bestMatchModule.providerType}\`\n` +
           `**Resource Type:** \`${avmDetails.resourceType}\`\n` +
           `**API Version:** \`${avmDetails.apiVersion}\`\n` +
           `${registryEndpoint}\n` +
@@ -348,14 +337,11 @@ server.registerTool(
     }
 
     if (collectedDocs.length === 0 && avmNotFound.length > 0) {
-      const providerSpecificMessage = providerFilter === 'both' ?
-        'both Bicep and Terraform' :
-        providerFilter;
       return {
         content: [
           {
             type: "text",
-            text: `No ${providerSpecificMessage} AVM documentation could be found for the requested resources: ${avmNotFound.join(', ')}. Please verify the resource names and provider filter. You can list available modules using the 'list_avms' resource, or find available AVMs at https://azure.github.io/Azure-Verified-Modules/indexes/bicep/ (Bicep) or https://azure.github.io/Azure-Verified-Modules/indexes/terraform/ (Terraform).`
+            text: `No ${providerName} AVM documentation could be found for the requested resources: ${avmNotFound.join(', ')}. Please verify the resource names and provider filter. You can list available modules using the 'list_avms' resource, or find available AVMs at https://azure.github.io/Azure-Verified-Modules/indexes/bicep/ (Bicep) or https://azure.github.io/Azure-Verified-Modules/indexes/terraform/ (Terraform).`
           }
         ]
       };
@@ -364,10 +350,7 @@ server.registerTool(
     infoPayload += collectedDocs.join('\n');
 
     if (avmNotFound.length > 0) {
-      const providerSpecificMessage = providerFilter === 'both' ?
-        'both Bicep and Terraform' :
-        providerFilter;
-      infoPayload += `\nWARNING: No ${providerSpecificMessage} AVM documentation found for the following requested resources: ${avmNotFound.join(', ')}.\n`;
+      infoPayload += `\nWARNING: No ${providerName} AVM documentation found for the following requested resources: ${avmNotFound.join(', ')}.\n`;
       infoPayload += `Please ensure these are valid AVM module names for the specified provider(s). The AI may need to make assumptions or inform the user.\n`;
     }
 
