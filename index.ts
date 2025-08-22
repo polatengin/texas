@@ -192,12 +192,13 @@ server.registerTool(
     description: "Get detailed information about a specific AVM module by name",
     inputSchema: {
       moduleName: z.string().describe("The name of the AVM module to get details for"),
-      provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default).")
+      provider: z.enum(['bicep', 'terraform']).optional().default('bicep').describe("Filter by provider type: 'terraform' or 'bicep' (default).")
     }
   },
-  async (args: { moduleName: string; provider?: 'bicep' | 'terraform' | 'both' }) => {
-    const providerFilter = args.provider || 'both';
-    const filteredModules = filterModulesByProvider(allModules, providerFilter);
+  async (args: { moduleName: string; provider?: 'bicep' | 'terraform' }) => {
+    const isTerraform = args.provider === 'terraform';
+    const provider = isTerraform ? terraformProvider : bicepProvider;
+    const filteredModules = await provider.loadAllModules();
 
     const module = filteredModules.find((m: AVMModule) =>
       m.moduleName === args.moduleName ||
@@ -217,14 +218,11 @@ server.registerTool(
       };
     }
 
-    const isTerraform = module.providerType === 'terraform';
-    const currentProvider = isTerraform ? terraformProvider : bicepProvider;
-
     const avmDetails = {
       resourceType: module.parsedMarkdown?.resourceTypes?.[0]?.type || module.resourceType || 'Not found',
       apiVersion: module.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
       brEndpoint: module.parsedMarkdown?.brEndpoint || 'Not found',
-      url: currentProvider.getDocumentationUrl(module)
+      url: provider.getDocumentationUrl(module)
     };
 
     const detailsText = `# ${module.moduleDisplayName}
