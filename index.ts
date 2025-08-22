@@ -142,6 +142,69 @@ server.registerResource(
 );
 
 server.registerTool(
+  "mcp_find_avm_modules",
+  {
+    title: "Find AVM Modules",
+    description: "Find AVM modules based on resource types with optional provider filtering",
+    inputSchema: {
+      resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app')."),
+      provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default).")
+    }
+  },
+  async (args: { resources: string[]; provider?: 'bicep' | 'terraform' | 'both' }) => {
+    const providerFilter = args.provider || 'both';
+    const filteredModules = filterModulesByProvider(allModules, providerFilter);
+
+    const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; provider_type: string; found: boolean }> = {};
+    for (const requestedResource of args.resources) {
+      const bestMatchModule = filteredModules.find((module: AVMModule) =>
+        module.moduleDisplayName.toLowerCase().includes(requestedResource.toLowerCase()) ||
+        module.alternativeNames.toLowerCase().includes(requestedResource.toLowerCase()) ||
+        module.resourceType.toLowerCase().includes(requestedResource.toLowerCase())
+      );
+
+      if (bestMatchModule) {
+        const isTerraform = bestMatchModule.providerType === 'terraform';
+        const currentProvider = isTerraform ? terraformProvider : bicepProvider;
+
+        const avmDetails = {
+          resourceType: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.type || bestMatchModule.resourceType || 'Not found',
+          apiVersion: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
+          brEndpoint: bestMatchModule.parsedMarkdown?.brEndpoint || 'Not found',
+          url: currentProvider.getDocumentationUrl(bestMatchModule)
+        };
+
+        result[requestedResource] = {
+          doc_name: bestMatchModule.moduleDisplayName,
+          resource_type: avmDetails.resourceType,
+          api_version: avmDetails.apiVersion,
+          br_endpoint: avmDetails.brEndpoint,
+          provider_type: isTerraform ? 'Terraform' : 'Bicep',
+          found: true
+        };
+      } else {
+        result[requestedResource] = {
+          doc_name: "Not found",
+          resource_type: null,
+          api_version: null,
+          br_endpoint: null,
+          provider_type: "N/A",
+          found: false
+        };
+      }
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }
+      ]
+    };
+  }
+);
+
+server.registerTool(
   "get_avm_module_details",
   {
     title: "Get AVM Module Details",
@@ -220,73 +283,10 @@ ${module.markdown}`;
 );
 
 server.registerTool(
-  "mcp_find_avm_modules",
+  "generate_modules",
   {
-    title: "Find AVM Modules",
-    description: "Find AVM modules based on resource types with optional provider filtering",
-    inputSchema: {
-      resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app')."),
-      provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default).")
-    }
-  },
-  async (args: { resources: string[]; provider?: 'bicep' | 'terraform' | 'both' }) => {
-    const providerFilter = args.provider || 'both';
-    const filteredModules = filterModulesByProvider(allModules, providerFilter);
-
-    const result: Record<string, { doc_name: string; resource_type: string | null; api_version: string | null; br_endpoint: string | null; provider_type: string; found: boolean }> = {};
-    for (const requestedResource of args.resources) {
-      const bestMatchModule = filteredModules.find((module: AVMModule) =>
-        module.moduleDisplayName.toLowerCase().includes(requestedResource.toLowerCase()) ||
-        module.alternativeNames.toLowerCase().includes(requestedResource.toLowerCase()) ||
-        module.resourceType.toLowerCase().includes(requestedResource.toLowerCase())
-      );
-
-      if (bestMatchModule) {
-        const isTerraform = bestMatchModule.providerType === 'terraform';
-        const currentProvider = isTerraform ? terraformProvider : bicepProvider;
-
-        const avmDetails = {
-          resourceType: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.type || bestMatchModule.resourceType || 'Not found',
-          apiVersion: bestMatchModule.parsedMarkdown?.resourceTypes?.[0]?.apiVersion || 'Not found',
-          brEndpoint: bestMatchModule.parsedMarkdown?.brEndpoint || 'Not found',
-          url: currentProvider.getDocumentationUrl(bestMatchModule)
-        };
-
-        result[requestedResource] = {
-          doc_name: bestMatchModule.moduleDisplayName,
-          resource_type: avmDetails.resourceType,
-          api_version: avmDetails.apiVersion,
-          br_endpoint: avmDetails.brEndpoint,
-          provider_type: isTerraform ? 'Terraform' : 'Bicep',
-          found: true
-        };
-      } else {
-        result[requestedResource] = {
-          doc_name: "Not found",
-          resource_type: null,
-          api_version: null,
-          br_endpoint: null,
-          provider_type: "N/A",
-          found: false
-        };
-      }
-    }
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2)
-        }
-      ]
-    };
-  }
-);
-
-server.registerTool(
-  "generate_module",
-  {
-    title: "Generate Module",
-    description: "Generate the files for the module based on the selected Azure resources with optional provider filtering.",
+    title: "Generate Modules",
+    description: "Generate the files for the modules based on the selected Azure resources with optional provider filtering.",
     inputSchema: {
       resources: z.array(z.string()).describe("A list of desired Azure resource types (e.g., 'storage account', 'web app'). The tool will retrieve documentation for these AVM modules."),
       provider: z.enum(['bicep', 'terraform', 'both']).optional().default('both').describe("Filter by provider type: 'bicep', 'terraform', or 'both' (default)."),
