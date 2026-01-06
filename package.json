@@ -39,7 +39,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.17.3",
+    "@modelcontextprotocol/sdk": "1.25.1",
     "marked": "16.2.0",
     "node-fetch": "3.3.2"
   },
